@@ -1,81 +1,54 @@
-import React, { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Checkbox } from '@/components/ui/checkbox';
-import AuthModal from '@/components/auth/AuthModal';
-import JobDescriptionInput from '@/components/dashboard/JobDescriptionInput';
-import ResumeFolderInput from '@/components/dashboard/ResumeFolderInput';
-import { Users, Video, Mail, Download, CheckCircle, Clock, Send, Brain } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import React, { useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
+import AuthModal from "@/components/auth/AuthModal";
+import JobDescriptionInput from "@/components/dashboard/JobDescriptionInput";
+import ResumeFolderInput from "@/components/dashboard/ResumeFolderInput";
+import {
+  Users,
+  Video,
+  Mail,
+  Download,
+  CheckCircle,
+  Clock,
+  Send,
+  Brain,
+} from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 const Index = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
-  const [recruiterEmail, setRecruiterEmail] = useState('');
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [recruiterEmail, setRecruiterEmail] = useState("");
   const [showResults, setShowResults] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
 
-  const [results, setResults] = useState([
-    {
-      id: 1,
-      name: "John Smith",
-      email: "john.smith@email.com",
-      phone: "+1-555-0123",
-      atsScore: 92,
-      status: "Qualified",
-      videoInterviewStatus: "Completed",
-      videoAnalysis: "Confident, Clear Communication",
-      interviewEmailSent: true,
-      shortlisted: false
-    },
-    {
-      id: 2,
-      name: "Sarah Johnson",
-      email: "sarah.j@email.com",
-      phone: "+1-555-0124",
-      atsScore: 88,
-      status: "Qualified",
-      videoInterviewStatus: "Pending",
-      videoAnalysis: "Awaiting Interview",
-      interviewEmailSent: true,
-      shortlisted: false
-    },
-    {
-      id: 3,
-      name: "Mike Davis",
-      email: "mike.davis@email.com",
-      phone: "+1-555-0125",
-      atsScore: 65,
-      status: "Review",
-      videoInterviewStatus: "Scheduled",
-      videoAnalysis: "Interview Scheduled",
-      interviewEmailSent: true,
-      shortlisted: false
-    },
-    {
-      id: 4,
-      name: "Lisa Brown",
-      email: "lisa.brown@email.com",
-      phone: "+1-555-0126",
-      atsScore: 15,
-      status: "Not Qualified",
-      videoInterviewStatus: "Not Invited",
-      videoAnalysis: "Below Threshold",
-      interviewEmailSent: false,
-      shortlisted: false
-    }
-  ]);
+  const [results, setResults] = useState([]);
 
   const handleLogin = () => {
-    setAuthMode('login');
+    setAuthMode("login");
     setShowAuthModal(true);
   };
 
   const handleSignup = () => {
-    setAuthMode('signup');
+    setAuthMode("signup");
     setShowAuthModal(true);
   };
 
@@ -87,20 +60,91 @@ const Index = () => {
     }
   };
 
-  const simulateProcessing = () => {
+  const getTopKeywords = (text, count = 3) => {
+    if (!text) return [];
+    // Split by commas, spaces, or both
+    const words = text
+      .replace(/\n/g, " ") // remove newlines
+      .split(/[, ]+/)
+      .filter(Boolean); // remove empty strings
+    return words.slice(0, count); // take first 'count' words
+  };
+
+  const simulateProcessing = async () => {
     setIsProcessing(true);
-    setTimeout(() => {
+
+    try {
+      // Get token from local storage
+      const token = localStorage.getItem("token"); // or "authToken" depending on your key
+      if (!token) throw new Error("No token found. Please login.");
+
+      const response = await fetch(
+        "http://localhost:5000/api/v1/score/rank-cvs",
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`, // include token here
+          },
+        }
+      );
+
+      if (response.status === 401 || response.status === 403) {
+        throw new Error("Invalid/Expired token, please login again");
+      }
+
+      if (!response.ok) throw new Error("Failed to fetch data");
+
+      const data = await response.json();
+
+      console.log(data, "******");
+
+      const formattedResults = data.results.map((candidate, index) => ({
+        id: index + 1, // unique id
+        name: candidate?.Name || "Unknown",
+        email: candidate?.Email || "Unknown",
+        phone: candidate?.Phone || "Unknown",
+        atsScore: candidate?.Score ? Number(candidate.Score.toFixed(0)) : 0,
+        status: candidate?.Score
+          ? candidate.Score > 50
+            ? "Qualified"
+            : candidate.Score > 40
+            ? "Review"
+            : "Not Qualified"
+          : "Not Available",
+        KeyStrength: candidate?.["Matched Skills"],
+        // considerations: candidate?.["Missing Skills"],
+        considerations: "Solid Experience",
+        videoInterviewStatus: "Pending",
+        videoAnalysis: "No Analysis",
+        interviewEmailSent: true,
+        shortlisted: false,
+      }));
+
+      setResults(formattedResults);
       setShowResults(true);
+    } catch (error) {
+      console.error(error);
+      alert(error.message);
+    } finally {
       setIsProcessing(false);
-    }, 2000);
+    }
   };
 
   const handleExcelDownload = () => {
-    const csvContent = "data:text/csv;charset=utf-8," +
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
       "Name,Email,Phone,ATS Score,Key Strength,Considerations,Status,Video Status,Video Analysis,Shortlisted\n" +
-      results.map(r =>
-        `${r.name},${r.email},${r.phone},${r.atsScore}%,Relevant Experience,Cloud, ML Ops,${r.status},${r.videoInterviewStatus},${r.videoAnalysis},${r.shortlisted ? 'Yes' : 'No'}`
-      ).join("\n");
+      results
+        .map(
+          (r) =>
+            `${r.name},${r.email},${r.phone},${
+              r.atsScore
+            }%,Relevant Experience,Cloud, ML Ops,${r.status},${
+              r.videoInterviewStatus
+            },${r.videoAnalysis},${r.shortlisted ? "Yes" : "No"}`
+        )
+        .join("\n");
 
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -112,19 +156,21 @@ const Index = () => {
   };
 
   const handleShortlist = (candidateId: number, checked: boolean) => {
-    setResults(prev => prev.map(candidate => {
-      if (candidate.id === candidateId) {
-        const updated = { ...candidate, shortlisted: checked };
-        if (checked) {
-          toast({
-            title: "Candidate Shortlisted",
-            description: `${candidate.name} has been shortlisted. Follow-up email will be sent from ${recruiterEmail}`,
-          });
+    setResults((prev) =>
+      prev.map((candidate) => {
+        if (candidate.id === candidateId) {
+          const updated = { ...candidate, shortlisted: checked };
+          if (checked) {
+            toast({
+              title: "Candidate Shortlisted",
+              description: `${candidate.name} has been shortlisted. Follow-up email will be sent from ${recruiterEmail}`,
+            });
+          }
+          return updated;
         }
-        return updated;
-      }
-      return candidate;
-    }));
+        return candidate;
+      })
+    );
   };
 
   const sendInterviewEmail = (candidate: any) => {
@@ -156,16 +202,21 @@ const Index = () => {
 
           {!isAuthenticated && (
             <div className="space-x-2">
-              <Button variant="ghost" onClick={handleLogin}>Login</Button>
-              <Button onClick={handleSignup} className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700">
+              <Button variant="ghost" onClick={handleLogin}>
+                Login
+              </Button>
+              <Button
+                onClick={handleSignup}
+                className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+              >
                 Sign Up
               </Button>
             </div>
           )}
 
           {isAuthenticated && (
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => setIsAuthenticated(false)}
               className="border-purple-200 hover:bg-purple-50"
             >
@@ -188,10 +239,17 @@ const Index = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <Button onClick={handleLogin} className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700">
+                <Button
+                  onClick={handleLogin}
+                  className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                >
                   Login
                 </Button>
-                <Button onClick={handleSignup} variant="outline" className="w-full border-purple-200 hover:bg-purple-50">
+                <Button
+                  onClick={handleSignup}
+                  variant="outline"
+                  className="w-full border-purple-200 hover:bg-purple-50"
+                >
                   Create Account
                 </Button>
               </CardContent>
@@ -218,7 +276,7 @@ const Index = () => {
                 className="px-8 py-3 text-lg font-semibold bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 shadow-lg text-white"
               >
                 <Brain className="w-5 h-5 mr-2" />
-                {isProcessing ? 'Processing...' : 'Run Agent'}
+                {isProcessing ? "Processing..." : "Run Agent"}
               </Button>
             </div>
           </>
@@ -227,7 +285,9 @@ const Index = () => {
         {isAuthenticated && (showResults || true) && (
           <div className="mb-8">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-purple-700">Sample Candidate Results</h2>
+              <h2 className="text-xl font-semibold text-purple-700">
+                Sample Candidate Results
+              </h2>
               <Button
                 onClick={handleExcelDownload}
                 className="bg-green-600 hover:bg-green-700 text-white"
@@ -261,23 +321,23 @@ const Index = () => {
                       <TableCell
                         className={
                           candidate.atsScore >= 85
-                            ? 'text-green-600 font-semibold'
+                            ? "text-green-600 font-semibold"
                             : candidate.atsScore >= 50
-                            ? 'text-yellow-600 font-semibold'
-                            : 'text-red-600 font-semibold'
+                            ? "text-yellow-600 font-semibold"
+                            : "text-red-600 font-semibold"
                         }
                       >
                         {candidate.atsScore}%
                       </TableCell>
-                      <TableCell>Relevant Experience</TableCell>
-                      <TableCell>Cloud, ML Ops</TableCell>
+                      <TableCell>{candidate.KeyStrength}</TableCell>
+                      <TableCell>{candidate.considerations}</TableCell>
                       <TableCell
                         className={
-                          candidate.status === 'Qualified'
-                            ? 'text-green-600 font-semibold'
-                            : candidate.status === 'Review'
-                            ? 'text-yellow-600 font-semibold'
-                            : 'text-red-600 font-semibold'
+                          candidate.status === "Qualified"
+                            ? "text-green-600 font-semibold"
+                            : candidate.status === "Review"
+                            ? "text-yellow-600 font-semibold"
+                            : "text-red-600 font-semibold"
                         }
                       >
                         {candidate.status}
