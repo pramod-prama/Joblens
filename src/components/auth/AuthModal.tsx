@@ -1,62 +1,129 @@
+import React, { useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { useToast } from "@/hooks/use-toast";
 
-import React, { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useToast } from '@/hooks/use-toast';
+// ----------------------------
+// API Client helper
+// ----------------------------
+const apiClient = async (url: string, options: RequestInit = {}) => {
+  const token = localStorage.getItem("token");
+
+  const headers = {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...options.headers,
+  };
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.message || "API request failed");
+  }
+
+  return data;
+};
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  mode: 'login' | 'signup';
+  mode: "login" | "signup";
   onSuccess: () => void;
 }
 
 const AuthModal = ({ isOpen, onClose, mode, onSuccess }: AuthModalProps) => {
-  const [currentMode, setCurrentMode] = useState<'login' | 'signup'>(mode);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [name, setName] = useState('');
+  const [currentMode, setCurrentMode] = useState<"login" | "signup">(mode);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [name, setName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (currentMode === 'signup' && password !== confirmPassword) {
+
+    if (currentMode === "signup" && password !== confirmPassword) {
       toast({
         title: "Error",
         description: "Passwords don't match",
-        variant: "destructive"
+        variant: "destructive",
       });
       return;
     }
 
     setIsLoading(true);
-    
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
-      toast({
-        title: "Success",
-        description: currentMode === 'login' ? "Logged in successfully!" : "Account created successfully!",
-      });
+
+    try {
+      let data;
+
+      if (currentMode === "login") {
+        // ✅ Login
+        data = await apiClient("http://localhost:5000/api/v1/users/login", {
+          method: "POST",
+          body: JSON.stringify({ email, password }),
+        });
+
+        toast({
+          title: "Success",
+          description: "Logged in successfully!",
+        });
+      } else {
+        // ✅ Signup
+        data = await apiClient("http://localhost:5000/api/v1/users/register", {
+          method: "POST",
+          body: JSON.stringify({ name, email, password }),
+        });
+
+        toast({
+          title: "Success",
+          description: "Account created successfully!",
+        });
+      }
+
+      // ✅ Save token
+      localStorage.setItem("token", data.token);
+
       onSuccess();
-    }, 1500);
+      resetForm();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const resetForm = () => {
-    setEmail('');
-    setPassword('');
-    setConfirmPassword('');
-    setName('');
+    setEmail("");
+    setPassword("");
+    setConfirmPassword("");
+    setName("");
   };
 
-  const switchMode = (newMode: 'login' | 'signup') => {
+  const switchMode = (newMode: "login" | "signup") => {
     setCurrentMode(newMode);
     resetForm();
   };
@@ -66,16 +133,19 @@ const AuthModal = ({ isOpen, onClose, mode, onSuccess }: AuthModalProps) => {
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-center text-2xl bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
-            {currentMode === 'login' ? 'Welcome Back' : 'Create Account'}
+            {currentMode === "login" ? "Welcome Back" : "Create Account"}
           </DialogTitle>
         </DialogHeader>
-        
-        <Tabs value={currentMode} onValueChange={(value) => switchMode(value as 'login' | 'signup')}>
+
+        <Tabs
+          value={currentMode}
+          onValueChange={(value) => switchMode(value as "login" | "signup")}
+        >
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="login">Login</TabsTrigger>
             <TabsTrigger value="signup">Sign Up</TabsTrigger>
           </TabsList>
-          
+
           <TabsContent value="login">
             <Card>
               <CardHeader>
@@ -106,18 +176,18 @@ const AuthModal = ({ isOpen, onClose, mode, onSuccess }: AuthModalProps) => {
                       required
                     />
                   </div>
-                  <Button 
-                    type="submit" 
+                  <Button
+                    type="submit"
                     className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
                     disabled={isLoading}
                   >
-                    {isLoading ? 'Logging in...' : 'Login'}
+                    {isLoading ? "Logging in..." : "Login"}
                   </Button>
                 </form>
               </CardContent>
             </Card>
           </TabsContent>
-          
+
           <TabsContent value="signup">
             <Card>
               <CardHeader>
@@ -168,12 +238,12 @@ const AuthModal = ({ isOpen, onClose, mode, onSuccess }: AuthModalProps) => {
                       required
                     />
                   </div>
-                  <Button 
-                    type="submit" 
+                  <Button
+                    type="submit"
                     className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
                     disabled={isLoading}
                   >
-                    {isLoading ? 'Creating account...' : 'Create Account'}
+                    {isLoading ? "Creating account..." : "Create Account"}
                   </Button>
                 </form>
               </CardContent>

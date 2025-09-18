@@ -1,26 +1,33 @@
-import React, { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, Upload, Link2, CheckCircle } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-import { Button } from '@/components/ui/button';
-import { Undo2 } from 'lucide-react';
+import React, { useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FileText, Upload, Link2, CheckCircle, Undo2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
 
 const JobDescriptionInput = () => {
-  const [jobDescription, setJobDescription] = useState('');
-  const [fileUrl, setFileUrl] = useState('');
+  const [jobDescription, setJobDescription] = useState("");
+  const [fileUrl, setFileUrl] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isProcessed, setIsProcessed] = useState(false);
-  const [activeTab, setActiveTab] = useState('text');
+  const [activeTab, setActiveTab] = useState("text");
+  const [loading, setLoading] = useState(false);
+
   const { toast } = useToast();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const allowedTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+      const allowedTypes = ["text/plain"];
       if (allowedTypes.includes(file.type)) {
         setSelectedFile(file);
         toast({
@@ -30,18 +37,94 @@ const JobDescriptionInput = () => {
       } else {
         toast({
           title: "Invalid file type",
-          description: "Please select a PDF or DOCX file",
-          variant: "destructive"
+          description: "Please select a PDF, DOCX, or TXT file",
+          variant: "destructive",
         });
       }
     }
   };
 
   const handleReset = () => {
-    setJobDescription('');
-    setFileUrl('');
+    setJobDescription("");
+    setFileUrl("");
     setSelectedFile(null);
     setIsProcessed(false);
+  };
+
+  const handleSubmit = async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem("token");
+      if (!token) {
+        toast({
+          title: "Error",
+          description: "No token found. Please log in again.",
+          variant: "destructive",
+        });
+        setLoading(false);
+        return;
+      }
+
+      const formData = new FormData();
+
+      if (activeTab === "text" && jobDescription.trim()) {
+        // send as description
+        formData.append("description", jobDescription);
+        try { localStorage.setItem('jobDescription', jobDescription); } catch {}
+      } else if (activeTab === "file" && selectedFile) {
+        // ✅ match backend multer config
+        formData.append("file", selectedFile);
+      }
+      // else if (activeTab === "url" && fileUrl.trim()) {
+      //   // send as description (string)
+      //   formData.append("description", fileUrl);
+      // }
+      else {
+        toast({
+          title: "Error",
+          description: "Please provide a job description before submitting.",
+          variant: "destructive",
+        });
+        setLoading(false);
+        return;
+      }
+
+      const response = await fetch("http://localhost:5000/api/v1/jobDesc/jd", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`, // ✅ token header only (no Content-Type for FormData)
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.message || "Failed to submit job description"
+        );
+      }
+
+      const data = await response.json();
+
+      toast({
+        title: "Success",
+        description: "Job description submitted successfully!",
+      });
+
+      setIsProcessed(true);
+      console.log("Response:", data);
+
+      // reset after success
+      handleReset();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Something went wrong",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -61,17 +144,19 @@ const JobDescriptionInput = () => {
         {isProcessed && (
           <div className="flex items-center space-x-2 text-green-600 bg-green-50 p-2 rounded-lg mt-2">
             <CheckCircle className="h-4 w-4" />
-            <span className="text-sm font-medium">Job description processed successfully</span>
+            <span className="text-sm font-medium">
+              Job description processed successfully
+            </span>
           </div>
         )}
       </CardHeader>
-      
+
       <CardContent className="space-y-6 flex-grow overflow-auto">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="text">Direct Text</TabsTrigger>
             <TabsTrigger value="file">File Upload</TabsTrigger>
-            <TabsTrigger value="url">URL</TabsTrigger>
+            {/* <TabsTrigger value="url">URL</TabsTrigger> */}
           </TabsList>
 
           <TabsContent value="text" className="space-y-4">
@@ -81,7 +166,7 @@ const JobDescriptionInput = () => {
                 id="job-description"
                 placeholder="Paste your job description here..."
                 value={jobDescription}
-                onChange={(e) => setJobDescription(e.target.value)}
+                onChange={(e) => { setJobDescription(e.target.value); try{ localStorage.setItem('jobDescription', e.target.value);}catch{} }}
                 className="min-h-[200px] resize-none"
               />
             </div>
@@ -98,7 +183,7 @@ const JobDescriptionInput = () => {
                 <Input
                   id="file-upload"
                   type="file"
-                  accept=".pdf,.docx"
+                  accept=".pdf,.docx,.txt"
                   onChange={handleFileChange}
                   className="max-w-xs mx-auto"
                 />
@@ -113,7 +198,7 @@ const JobDescriptionInput = () => {
             </div>
           </TabsContent>
 
-          <TabsContent value="url" className="space-y-4">
+          {/* <TabsContent value="url" className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="file-url">File URL</Label>
               <div className="relative">
@@ -128,23 +213,11 @@ const JobDescriptionInput = () => {
                 />
               </div>
             </div>
-          </TabsContent>
+          </TabsContent> */}
         </Tabs>
 
-        {isProcessed && (
-          <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-4 rounded-lg mt-4">
-            <h4 className="font-semibold text-gray-800 mb-2">Extracted Information:</h4>
-            <div className="space-y-2 text-sm">
-              <div><strong>Job Title:</strong> Senior Software Engineer</div>
-              <div><strong>Key Skills:</strong> React, Node.js, TypeScript, AWS</div>
-              <div><strong>Experience:</strong> 5+ years</div>
-              <div><strong>Education:</strong> Bachelor's in Computer Science</div>
-            </div>
-          </div>
-        )}
-
-        {/* RESET BUTTON - Added here */}
-        <div className="flex justify-end mt-6">
+        {/* RESET & SUBMIT BUTTONS */}
+        <div className="flex justify-end mt-6 space-x-2">
           <Button
             variant="ghost"
             onClick={handleReset}
@@ -153,8 +226,14 @@ const JobDescriptionInput = () => {
             <Undo2 className="w-4 h-4" />
             <span>Reset</span>
           </Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={loading}
+            className="bg-purple-600 text-white hover:bg-purple-700 flex items-center space-x-1"
+          >
+            {loading ? "Submitting..." : "Submit"}
+          </Button>
         </div>
-
       </CardContent>
     </Card>
   );
