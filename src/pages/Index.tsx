@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -19,16 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import AuthModal from "@/components/auth/AuthModal";
 import JobDescriptionInput from "@/components/dashboard/JobDescriptionInput";
 import ResumeFolderInput from "@/components/dashboard/ResumeFolderInput";
-import {
-  Users,
-  Video,
-  Mail,
-  Download,
-  CheckCircle,
-  Clock,
-  Send,
-  Brain,
-} from "lucide-react";
+import { Users, Download, Brain } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const Index = () => {
@@ -36,96 +27,143 @@ const Index = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [recruiterEmail, setRecruiterEmail] = useState("");
-  const [showResults, setShowResults] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [results, setResults] = useState<any[]>([]);
   const { toast } = useToast();
 
-  const [results, setResults] = useState([]);
+  const [numbers, setNumbers] = useState<number[]>([]); // use numbers state to fetch thresholds
+  const limit = 3;
+  const userId = "user123";
+
+  // Thresholds for coloring table
+  const [qualifiedThreshold, setQualifiedThreshold] = useState(50);
+  const [reviewThreshold, setReviewThreshold] = useState(40);
 
   const handleLogin = () => {
     setAuthMode("login");
     setShowAuthModal(true);
   };
-
   const handleSignup = () => {
     setAuthMode("signup");
     setShowAuthModal(true);
   };
-
   const handleAuthSuccess = (email?: string) => {
     setIsAuthenticated(true);
     setShowAuthModal(false);
-    if (email) {
-      setRecruiterEmail(email);
+    if (email) setRecruiterEmail(email);
+
+    // Fetch candidate results automatically after login
+    fetchCandidates(numbers);
+  };
+
+  const handleChangeNumber = (index: number, value: string) => {
+    const updated = [...numbers];
+    updated[index] = Number(value);
+    setNumbers(updated);
+  };
+
+  const addInput = () => {
+    if (numbers.length < limit) setNumbers([...numbers, 0]);
+    else
+      toast({
+        title: "Limit reached",
+        description: `Max ${limit} numbers allowed.`,
+      });
+  };
+
+  const handleSubmitNumbers = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch("http://localhost:5000/api/v1/ats/ats-number", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, numbers }),
+      });
+      const data = await res.json();
+      toast({ title: data.message });
+
+      // Fetch candidate results after submitting numbers
+      fetchCandidates(numbers);
+    } catch (err: any) {
+      console.error(err);
+      toast({ title: "Error submitting numbers", description: err.message });
     }
   };
 
-  const getTopKeywords = (text, count = 3) => {
-    if (!text) return [];
-    // Split by commas, spaces, or both
-    const words = text
-      .replace(/\n/g, " ") // remove newlines
-      .split(/[, ]+/)
-      .filter(Boolean); // remove empty strings
-    return words.slice(0, count); // take first 'count' words
+  const fetchNumbers = async () => {
+    try {
+      const res = await fetch(
+        `http://localhost:5000/api/v1/ats/ats-number/${userId}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.numbers) setNumbers(data.numbers);
+      }
+    } catch (err) {
+      console.error("Error fetching numbers:", err);
+    }
   };
 
-  const simulateProcessing = async () => {
-    setIsProcessing(true);
+  useEffect(() => {
+    fetchNumbers();
+  }, []);
 
+  const fetchCandidates = async (numbersArr: number[]) => {
+    setIsProcessing(true);
     try {
-      // Get token from local storage
-      const token = localStorage.getItem("token"); // or "authToken" depending on your key
+      const token = localStorage.getItem("token");
       if (!token) throw new Error("No token found. Please login.");
 
-      const response = await fetch(
+      // Fetch candidate scores
+      const resScores = await fetch(
         "http://localhost:5000/api/v1/score/rank-cvs",
         {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`, // include token here
+            Authorization: `Bearer ${token}`,
           },
         }
       );
+      if (!resScores.ok) throw new Error("Failed to fetch candidate data");
+      const scoreData = await resScores.json();
 
-      if (response.status === 401 || response.status === 403) {
-        throw new Error("Invalid/Expired token, please login again");
-      }
+      console.log(scoreData, "*********scoreData");
 
-      if (!response.ok) throw new Error("Failed to fetch data");
+      // Determine thresholds from numbersArr
+      const qualifiedThresholdDynamic = numbersArr[1] || 50;
+      const reviewThresholdDynamic = numbersArr[0] || 40;
 
-      const data = await response.json();
+      setQualifiedThreshold(qualifiedThresholdDynamic);
+      setReviewThreshold(reviewThresholdDynamic);
 
-      console.log(data, "******");
+      // Format candidate results
+      const formattedResults = scoreData.results.map((c: any, i: number) => {
+        const atsScore = c?.Score ? Number(c.Score.toFixed(0)) : 0;
 
-      const formattedResults = data.results.map((candidate, index) => ({
-        id: index + 1, // unique id
-        name: candidate?.Name || "Unknown",
-        email: candidate?.Email || "Unknown",
-        phone: candidate?.Phone || "Unknown",
-        atsScore: candidate?.Score ? Number(candidate.Score.toFixed(0)) : 0,
-        status: candidate?.Score
-          ? candidate.Score > 50
-            ? "Qualified"
-            : candidate.Score > 40
-            ? "Review"
-            : "Not Qualified"
-          : "Not Available",
-        KeyStrength: candidate?.["Matched Skills"],
-        // considerations: candidate?.["Missing Skills"],
-        considerations: "Solid Experience",
-        videoInterviewStatus: "Pending",
-        videoAnalysis: "No Analysis",
-        interviewEmailSent: true,
-        shortlisted: false,
-      }));
+        let status = "Not Qualified";
+        if (atsScore > qualifiedThresholdDynamic) status = "Qualified";
+        else if (atsScore > reviewThresholdDynamic) status = "Review";
+
+        return {
+          id: i + 1,
+          name: c?.Name || "Unknown",
+          email: c?.Email || "Unknown",
+          phone: c?.Phone || "Unknown",
+          atsScore,
+          status,
+          KeyStrength: c?.["Matched Skills"] || "",
+          considerations: c?.["Missing Skills"] || "Solid Experience",
+          videoInterviewStatus: "Pending",
+          videoAnalysis: "No Analysis",
+          shortlisted: false,
+        };
+      });
 
       setResults(formattedResults);
-      setShowResults(true);
-    } catch (error) {
-      console.error(error);
-      alert(error.message);
+    } catch (err: any) {
+      console.error(err);
+      toast({ title: "Error", description: err.message });
     } finally {
       setIsProcessing(false);
     }
@@ -134,22 +172,23 @@ const Index = () => {
   const handleExcelDownload = () => {
     const csvContent =
       "data:text/csv;charset=utf-8," +
-      "Name,Email,Phone,ATS Score,Key Strength,Considerations,Status,Video Status,Video Analysis,Shortlisted\n" +
-      results
-        .map(
-          (r) =>
-            `${r.name},${r.email},${r.phone},${
-              r.atsScore
-            }%,Relevant Experience,Cloud, ML Ops,${r.status},${
-              r.videoInterviewStatus
-            },${r.videoAnalysis},${r.shortlisted ? "Yes" : "No"}`
+      [
+        "Name,Email,Phone,ATS Score,Key Strength,Considerations,Status,Video Status,Video Analysis,Shortlisted",
+      ]
+        .concat(
+          results.map(
+            (r) =>
+              `${r.name},${r.email},${r.phone},${r.atsScore},${r.KeyStrength},${
+                r.considerations
+              },${r.status},${r.videoInterviewStatus},${r.videoAnalysis},${
+                r.shortlisted ? "Yes" : "No"
+              }`
+          )
         )
         .join("\n");
-
-    const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "candidates_results.csv");
+    link.href = encodeURI(csvContent);
+    link.download = "candidate_results.csv";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -157,33 +196,22 @@ const Index = () => {
 
   const handleShortlist = (candidateId: number, checked: boolean) => {
     setResults((prev) =>
-      prev.map((candidate) => {
-        if (candidate.id === candidateId) {
-          const updated = { ...candidate, shortlisted: checked };
-          if (checked) {
-            toast({
-              title: "Candidate Shortlisted",
-              description: `${candidate.name} has been shortlisted. Follow-up email will be sent from ${recruiterEmail}`,
-            });
-          }
-          return updated;
-        }
-        return candidate;
-      })
+      prev.map((c) =>
+        c.id === candidateId ? { ...c, shortlisted: checked } : c
+      )
     );
-  };
-
-  const sendInterviewEmail = (candidate: any) => {
-    if (candidate.atsScore >= 20) {
+    if (checked) {
+      const candidate = results.find((r) => r.id === candidateId);
       toast({
-        title: "Interview Email Sent",
-        description: `Video interview invitation sent to ${candidate.name} from ${recruiterEmail}`,
+        title: "Candidate Shortlisted",
+        description: `${candidate?.name} has been shortlisted.`,
       });
     }
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50">
+      {/* Header */}
       <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-40">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center space-x-3">
@@ -195,12 +223,11 @@ const Index = () => {
                 JobLens Agent
               </h1>
               <p className="text-xs text-gray-600 mt-1">
-                ai-powered recruitment platform
+                AI-powered recruitment platform
               </p>
             </div>
           </div>
-
-          {!isAuthenticated && (
+          {!isAuthenticated ? (
             <div className="space-x-2">
               <Button variant="ghost" onClick={handleLogin}>
                 Login
@@ -212,9 +239,7 @@ const Index = () => {
                 Sign Up
               </Button>
             </div>
-          )}
-
-          {isAuthenticated && (
+          ) : (
             <Button
               variant="outline"
               onClick={() => setIsAuthenticated(false)}
@@ -226,10 +251,11 @@ const Index = () => {
         </div>
       </header>
 
+      {/* Main */}
       <main className="container mx-auto px-4 py-6 relative">
         {!isAuthenticated && (
           <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-30 flex items-center justify-center">
-            <Card className="max-w-md w-full mx-4 shadow-2xl border-0 bg-white/90 backdrop-blur-sm">
+            <Card className="max-w-md w-full shadow-2xl border-0 bg-white/90 backdrop-blur-sm">
               <CardHeader className="text-center">
                 <CardTitle className="text-2xl bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
                   Welcome to JobLens Agent
@@ -259,18 +285,47 @@ const Index = () => {
 
         {isAuthenticated && (
           <>
+            {/* Inputs */}
             <div className="grid lg:grid-cols-2 gap-8 mb-4">
               <div className="h-[400px]">
                 <JobDescriptionInput />
               </div>
               <div className="h-[400px]">
                 <ResumeFolderInput />
+                <div className="mt-4">
+                  <h2 className="text-lg font-semibold mb-2">
+                    Enter ATS Threshold
+                  </h2>
+                  <form onSubmit={handleSubmitNumbers}>
+                    {numbers.map((num, idx) => (
+                      <div key={idx} className="mb-2">
+                        <input
+                          type="number"
+                          value={num}
+                          onChange={(e) =>
+                            handleChangeNumber(idx, e.target.value)
+                          }
+                          placeholder={`Number ${idx + 1}`}
+                          className="border p-2 rounded w-full"
+                          required
+                        />
+                      </div>
+                    ))}
+                    <div className="flex gap-2 mt-2">
+                      <Button type="button" onClick={addInput}>
+                        Add Number
+                      </Button>
+                      <Button type="submit">Submit</Button>
+                    </div>
+                  </form>
+                </div>
               </div>
             </div>
 
+            {/* Run Agent */}
             <div className="text-center mb-6">
               <Button
-                onClick={simulateProcessing}
+                onClick={() => fetchCandidates(numbers)}
                 disabled={isProcessing}
                 size="lg"
                 className="px-8 py-3 text-lg font-semibold bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 shadow-lg text-white"
@@ -279,85 +334,87 @@ const Index = () => {
                 {isProcessing ? "Processing..." : "Run Agent"}
               </Button>
             </div>
-          </>
-        )}
 
-        {isAuthenticated && (showResults || true) && (
-          <div className="mb-8">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-purple-700">
-                Sample Candidate Results
-              </h2>
-              <Button
-                onClick={handleExcelDownload}
-                className="bg-green-600 hover:bg-green-700 text-white"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Download Excel
-              </Button>
-            </div>
-            <div className="overflow-x-auto bg-white shadow-md rounded-lg">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-purple-100 text-purple-700 font-semibold">
-                    <TableHead>Name</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Phone</TableHead>
-                    <TableHead>ATS Score</TableHead>
-                    <TableHead>Key Strength</TableHead>
-                    <TableHead>Considerations</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Video Status</TableHead>
-                    <TableHead>Video Analysis</TableHead>
-                    <TableHead>Shortlist</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {results.map((candidate) => (
-                    <TableRow key={candidate.id} className="hover:bg-blue-50">
-                      <TableCell>{candidate.name}</TableCell>
-                      <TableCell>{candidate.email}</TableCell>
-                      <TableCell>{candidate.phone}</TableCell>
-                      <TableCell
-                        className={
-                          candidate.atsScore >= 85
-                            ? "text-green-600 font-semibold"
-                            : candidate.atsScore >= 50
-                            ? "text-yellow-600 font-semibold"
-                            : "text-red-600 font-semibold"
-                        }
-                      >
-                        {candidate.atsScore}%
-                      </TableCell>
-                      <TableCell>{candidate.KeyStrength}</TableCell>
-                      <TableCell>{candidate.considerations}</TableCell>
-                      <TableCell
-                        className={
-                          candidate.status === "Qualified"
-                            ? "text-green-600 font-semibold"
-                            : candidate.status === "Review"
-                            ? "text-yellow-600 font-semibold"
-                            : "text-red-600 font-semibold"
-                        }
-                      >
-                        {candidate.status}
-                      </TableCell>
-                      <TableCell>{candidate.videoInterviewStatus}</TableCell>
-                      <TableCell>{candidate.videoAnalysis}</TableCell>
-                      <TableCell>
-                        <Checkbox
-                          checked={candidate.shortlisted}
-                          onCheckedChange={(checked) =>
-                            handleShortlist(candidate.id, Boolean(checked))
-                          }
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
+            {/* Candidate Results */}
+            {results.length > 0 && (
+              <div className="mb-8">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-semibold text-purple-700">
+                    Candidate Results
+                  </h2>
+                  <Button
+                    onClick={handleExcelDownload}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download Excel
+                  </Button>
+                </div>
+
+                <div className="overflow-x-auto bg-white shadow-md rounded-lg">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-purple-100 text-purple-700 font-semibold">
+                        <TableHead>Name</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Phone</TableHead>
+                        <TableHead>ATS Score</TableHead>
+                        <TableHead>Key Strength</TableHead>
+                        <TableHead>Considerations</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Video Status</TableHead>
+                        <TableHead>Video Analysis</TableHead>
+                        <TableHead>Shortlist</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {results.map((c) => (
+                        <TableRow key={c.id} className="hover:bg-blue-50">
+                          <TableCell>{c.name}</TableCell>
+                          <TableCell>{c.email}</TableCell>
+                          <TableCell>{c.phone}</TableCell>
+                          <TableCell
+                            className={
+                              c.atsScore > qualifiedThreshold
+                                ? "text-green-600 font-semibold"
+                                : c.atsScore > reviewThreshold
+                                ? "text-yellow-600 font-semibold"
+                                : "text-red-600 font-semibold"
+                            }
+                          >
+                            {c.atsScore}%
+                          </TableCell>
+                          <TableCell>{c.KeyStrength}</TableCell>
+                          <TableCell>{c.considerations}</TableCell>
+                          <TableCell
+                            className={
+                              c.status === "Qualified"
+                                ? "text-green-600 font-semibold"
+                                : c.status === "Review"
+                                ? "text-yellow-600 font-semibold"
+                                : "text-red-600 font-semibold"
+                            }
+                          >
+                            {c.status}
+                          </TableCell>
+                          <TableCell>{c.videoInterviewStatus}</TableCell>
+                          <TableCell>{c.videoAnalysis}</TableCell>
+                          <TableCell>
+                            <Checkbox
+                              checked={c.shortlisted}
+                              onCheckedChange={(checked) =>
+                                handleShortlist(c.id, Boolean(checked))
+                              }
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </main>
 
