@@ -27,18 +27,20 @@ const Index = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [recruiterEmail, setRecruiterEmail] = useState("");
+  const [showResults, setShowResults] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [results, setResults] = useState<any[]>([]);
   const { toast } = useToast();
 
-  const [numbers, setNumbers] = useState<number[]>([]); // use numbers state to fetch thresholds
-  const limit = 3;
+  const [numbers, setNumbers] = useState<number[]>([]);
+  const limit = 2;
   const userId = "user123";
 
-  // Thresholds for coloring table
+  // Thresholds for coloring
   const [qualifiedThreshold, setQualifiedThreshold] = useState(50);
   const [reviewThreshold, setReviewThreshold] = useState(40);
 
+  // ---------------- AUTH ----------------
   const handleLogin = () => {
     setAuthMode("login");
     setShowAuthModal(true);
@@ -51,11 +53,10 @@ const Index = () => {
     setIsAuthenticated(true);
     setShowAuthModal(false);
     if (email) setRecruiterEmail(email);
-
-    // Fetch candidate results automatically after login
     fetchCandidates(numbers);
   };
 
+  // ---------------- NUMBERS ----------------
   const handleChangeNumber = (index: number, value: string) => {
     const updated = [...numbers];
     updated[index] = Number(value);
@@ -81,8 +82,6 @@ const Index = () => {
       });
       const data = await res.json();
       toast({ title: data.message });
-
-      // Fetch candidate results after submitting numbers
       fetchCandidates(numbers);
     } catch (err: any) {
       console.error(err);
@@ -108,39 +107,33 @@ const Index = () => {
     fetchNumbers();
   }, []);
 
+  // ---------------- CANDIDATES ----------------
   const fetchCandidates = async (numbersArr: number[]) => {
     setIsProcessing(true);
     try {
       const token = localStorage.getItem("token");
       if (!token) throw new Error("No token found. Please login.");
 
-      // Fetch candidate scores
-      const resScores = await fetch(
-        "http://localhost:5000/api/v1/score/rank-cvs",
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-      if (!resScores.ok) throw new Error("Failed to fetch candidate data");
-      const scoreData = await resScores.json();
+      const res = await fetch("http://localhost:5000/api/v1/score/rank-cvs", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
-      console.log(scoreData, "*********scoreData");
+      if (!res.ok) throw new Error("Failed to fetch candidate data");
+      const scoreData = await res.json();
 
-      // Determine thresholds from numbersArr
+      // Dynamic thresholds
       const qualifiedThresholdDynamic = numbersArr[1] || 50;
       const reviewThresholdDynamic = numbersArr[0] || 40;
 
       setQualifiedThreshold(qualifiedThresholdDynamic);
       setReviewThreshold(reviewThresholdDynamic);
 
-      // Format candidate results
       const formattedResults = scoreData.results.map((c: any, i: number) => {
         const atsScore = c?.Score ? Number(c.Score.toFixed(0)) : 0;
-
         let status = "Not Qualified";
         if (atsScore > qualifiedThresholdDynamic) status = "Qualified";
         else if (atsScore > reviewThresholdDynamic) status = "Review";
@@ -161,6 +154,7 @@ const Index = () => {
       });
 
       setResults(formattedResults);
+      setShowResults(true);
     } catch (err: any) {
       console.error(err);
       toast({ title: "Error", description: err.message });
@@ -169,6 +163,7 @@ const Index = () => {
     }
   };
 
+  // ---------------- CSV DOWNLOAD ----------------
   const handleExcelDownload = () => {
     const csvContent =
       "data:text/csv;charset=utf-8," +
@@ -186,6 +181,7 @@ const Index = () => {
           )
         )
         .join("\n");
+
     const link = document.createElement("a");
     link.href = encodeURI(csvContent);
     link.download = "candidate_results.csv";
@@ -194,21 +190,27 @@ const Index = () => {
     document.body.removeChild(link);
   };
 
+  // ---------------- SHORTLIST ----------------
   const handleShortlist = (candidateId: number, checked: boolean) => {
     setResults((prev) =>
-      prev.map((c) =>
-        c.id === candidateId ? { ...c, shortlisted: checked } : c
+      prev.map((candidate) =>
+        candidate.id === candidateId
+          ? { ...candidate, shortlisted: checked }
+          : candidate
       )
     );
     if (checked) {
       const candidate = results.find((r) => r.id === candidateId);
-      toast({
-        title: "Candidate Shortlisted",
-        description: `${candidate?.name} has been shortlisted.`,
-      });
+      if (candidate) {
+        toast({
+          title: "Candidate Shortlisted",
+          description: `${candidate.name} has been shortlisted. Follow-up email will be sent from ${recruiterEmail}`,
+        });
+      }
     }
   };
 
+  // ---------------- UI ----------------
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50">
       {/* Header */}
@@ -227,6 +229,7 @@ const Index = () => {
               </p>
             </div>
           </div>
+
           {!isAuthenticated ? (
             <div className="space-x-2">
               <Button variant="ghost" onClick={handleLogin}>
@@ -299,6 +302,7 @@ const Index = () => {
                   <form onSubmit={handleSubmitNumbers}>
                     {numbers.map((num, idx) => (
                       <div key={idx} className="mb-2">
+                        <p>{idx === 0 ? "Low" : "High"} Threshold</p>
                         <input
                           type="number"
                           value={num}
@@ -311,12 +315,14 @@ const Index = () => {
                         />
                       </div>
                     ))}
-                    <div className="flex gap-2 mt-2">
-                      <Button type="button" onClick={addInput}>
-                        Add Number
-                      </Button>
-                      <Button type="submit">Submit</Button>
-                    </div>
+                    {numbers.length != limit && (
+                      <div className="flex gap-2 mt-2">
+                        <Button type="button" onClick={addInput}>
+                          Add Number
+                        </Button>
+                      </div>
+                    )}
+                    <Button type="submit">Submit</Button>
                   </form>
                 </div>
               </div>
@@ -336,7 +342,7 @@ const Index = () => {
             </div>
 
             {/* Candidate Results */}
-            {results.length > 0 && (
+            {showResults && results.length > 0 && (
               <div className="mb-8">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-xl font-semibold text-purple-700">
@@ -368,47 +374,66 @@ const Index = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {results.map((c) => (
-                        <TableRow key={c.id} className="hover:bg-blue-50">
-                          <TableCell>{c.name}</TableCell>
-                          <TableCell>{c.email}</TableCell>
-                          <TableCell>{c.phone}</TableCell>
-                          <TableCell
-                            className={
-                              c.atsScore > qualifiedThreshold
-                                ? "text-green-600 font-semibold"
-                                : c.atsScore > reviewThreshold
-                                ? "text-yellow-600 font-semibold"
-                                : "text-red-600 font-semibold"
-                            }
-                          >
-                            {c.atsScore}%
-                          </TableCell>
-                          <TableCell>{c.KeyStrength}</TableCell>
-                          <TableCell>{c.considerations}</TableCell>
-                          <TableCell
-                            className={
-                              c.status === "Qualified"
-                                ? "text-green-600 font-semibold"
-                                : c.status === "Review"
-                                ? "text-yellow-600 font-semibold"
-                                : "text-red-600 font-semibold"
-                            }
-                          >
-                            {c.status}
-                          </TableCell>
-                          <TableCell>{c.videoInterviewStatus}</TableCell>
-                          <TableCell>{c.videoAnalysis}</TableCell>
-                          <TableCell>
-                            <Checkbox
-                              checked={c.shortlisted}
-                              onCheckedChange={(checked) =>
-                                handleShortlist(c.id, Boolean(checked))
+                      {results.map((c) => {
+                        return (
+                          <TableRow key={c.id} className="hover:bg-blue-50">
+                            <TableCell>{c.name}</TableCell>
+                            <TableCell>{c.email}</TableCell>
+                            <TableCell>{c.phone}</TableCell>
+                            <TableCell
+                              className={
+                                c.atsScore > qualifiedThreshold
+                                  ? "text-green-600 font-semibold"
+                                  : c.atsScore > reviewThreshold
+                                  ? "text-yellow-600 font-semibold"
+                                  : "text-red-600 font-semibold"
                               }
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                            >
+                              {c.atsScore}%
+                            </TableCell>
+                            <TableCell>
+                              <ul className="list-disc pl-5">
+                                {c.KeyStrength?.split(",") // split by comma
+                                  .slice(0, 5) // take first 5 items
+                                  .map((item, index) => (
+                                    <li key={index}>{item.trim()}</li>
+                                  ))}
+                              </ul>
+                            </TableCell>
+                            <TableCell>
+                              <ul className="list-disc pl-5">
+                                {c.considerations
+                                  ?.split(",") // split by comma
+                                  .slice(1, 5) // take first 5 items
+                                  .map((item, index) => (
+                                    <li key={index}>{item.trim()}</li>
+                                  ))}
+                              </ul>
+                            </TableCell>
+                            <TableCell
+                              className={
+                                c.status === "Qualified"
+                                  ? "text-green-600 font-semibold"
+                                  : c.status === "Review"
+                                  ? "text-yellow-600 font-semibold"
+                                  : "text-red-600 font-semibold"
+                              }
+                            >
+                              {c.status}
+                            </TableCell>
+                            <TableCell>{c.videoInterviewStatus}</TableCell>
+                            <TableCell>{c.videoAnalysis}</TableCell>
+                            <TableCell>
+                              <Checkbox
+                                checked={c.shortlisted}
+                                onCheckedChange={(checked) =>
+                                  handleShortlist(c.id, Boolean(checked))
+                                }
+                              />
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
