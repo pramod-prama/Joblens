@@ -70,7 +70,9 @@ const JobDescriptionInput = () => {
       if (activeTab === "text" && jobDescription.trim()) {
         // send as description
         formData.append("description", jobDescription);
-        try { localStorage.setItem('jobDescription', jobDescription); } catch {}
+        try {
+          localStorage.setItem("jobDescription", jobDescription);
+        } catch {}
       } else if (activeTab === "file" && selectedFile) {
         // ✅ match backend multer config
         formData.append("file", selectedFile);
@@ -166,7 +168,12 @@ const JobDescriptionInput = () => {
                 id="job-description"
                 placeholder="Paste your job description here..."
                 value={jobDescription}
-                onChange={(e) => { setJobDescription(e.target.value); try{ localStorage.setItem('jobDescription', e.target.value);}catch{} }}
+                onChange={(e) => {
+                  setJobDescription(e.target.value);
+                  try {
+                    localStorage.setItem("jobDescription", e.target.value);
+                  } catch {}
+                }}
                 className="min-h-[200px] resize-none"
               />
             </div>
