@@ -4,32 +4,49 @@ import CVUpload from "../model/Cv.js";
 import path from "path";
 import nlp from "compromise";
 import { readPdfFromPath, readTxtFromPath } from "../utils/readPdf.js";
+import {
+  buildKeywordExtractPrompt,
+  callOllamaGenerate,
+  safeParseJSON,
+} from "../utils/ollama.js";
+
+async function extractSkillsFromJDWithOllama(jdText) {
+  const prompt = buildKeywordExtractPrompt(jdText);
+  const raw = await callOllamaGenerate(prompt);
+
+  const parsed = safeParseJSON(raw);
+  if (parsed && Array.isArray(parsed.skills)) {
+    return parsed.skills.map((s) => s.toLowerCase().trim());
+  }
+
+  return [];
+}
 
 // ------------------------------
 // Utility: Extract skills from JD text
 // ------------------------------
-const extractSkillsFromText = (text) => {
-  const doc = nlp(text);
-  const skillsSet = new Set();
+// const extractSkillsFromText = (text) => {
+//   const doc = nlp(text);
+//   const skillsSet = new Set();
 
-  // Extract nouns
-  doc
-    .nouns()
-    .out("array")
-    .forEach((s) => {
-      s = s.toLowerCase().replace(/[^a-z0-9+#.-]/g, "");
-      if (s && !STOPWORDS.has(s)) skillsSet.add(s);
-    });
+//   // Extract nouns
+//   doc
+//     .nouns()
+//     .out("array")
+//     .forEach((s) => {
+//       s = s.toLowerCase().replace(/[^a-z0-9+#.-]/g, "");
+//       if (s && !STOPWORDS.has(s)) skillsSet.add(s);
+//     });
 
-  // Extract tech/keywords (letters, numbers, +, #, .)
-  const custom = text.match(/\b[A-Za-z0-9.+/#-]+\b/g) || [];
-  custom.forEach((s) => {
-    s = s.toLowerCase();
-    if (s && !STOPWORDS.has(s)) skillsSet.add(s);
-  });
+//   // Extract tech/keywords (letters, numbers, +, #, .)
+//   const custom = text.match(/\b[A-Za-z0-9.+/#-]+\b/g) || [];
+//   custom.forEach((s) => {
+//     s = s.toLowerCase();
+//     if (s && !STOPWORDS.has(s)) skillsSet.add(s);
+//   });
 
-  return Array.from(skillsSet);
-};
+//   return Array.from(skillsSet);
+// };
 
 // ------------------------------
 // Utility: Extract candidate details
@@ -151,7 +168,9 @@ export const rankCVsAgainstJD = asyncHandler(async (req, res) => {
     jdText = await readTxtFromPath(jdRecord.pdfFile);
   }
 
-  const jdSkills = extractSkillsFromText(jdText);
+  // const jdSkills = extractSkillsFromText(jdText);
+  // Use Ollama-powered extraction:
+  const jdSkills = await extractSkillsFromJDWithOllama(jdText);
 
   // 2. Fetch all CVs
   const cvs = await CVUpload.find();

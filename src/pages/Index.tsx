@@ -315,14 +315,14 @@ const Index = () => {
                         />
                       </div>
                     ))}
-                    {numbers.length != limit && (
-                      <div className="flex gap-2 mt-2">
+                    <div className="flex gap-2 mt-2">
+                      {numbers.length != limit && (
                         <Button type="button" onClick={addInput}>
                           Add Number
                         </Button>
-                      </div>
-                    )}
-                    <Button type="submit">Submit</Button>
+                      )}
+                      <Button type="submit">Submit</Button>
+                    </div>
                   </form>
                 </div>
               </div>

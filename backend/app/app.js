@@ -86,7 +86,7 @@ Return ONLY valid JSON of the form:
  * Requires: `ollama serve` and a pulled model (e.g., `ollama pull llama3.1:8b`)
  * Node 18+ has global fetch. If on older Node, install node-fetch and import it.
  */
-async function callOllamaGenerate(prompt) {
+export async function callOllamaGenerate(prompt) {
   const base = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
   const model = process.env.OLLAMA_MODEL || "llama3.1:8b";
   const temperature = parseFloat(process.env.DYNQ_TEMPERATURE || "0.35");
