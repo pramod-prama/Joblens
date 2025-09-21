@@ -33,7 +33,7 @@ const Index = () => {
   const { toast } = useToast();
 
   const [numbers, setNumbers] = useState<number[]>([]);
-  const limit = 3;
+  const limit = 2;
   const userId = "user123";
 
   // Thresholds for coloring
@@ -302,6 +302,7 @@ const Index = () => {
                   <form onSubmit={handleSubmitNumbers}>
                     {numbers.map((num, idx) => (
                       <div key={idx} className="mb-2">
+                        <p>{idx === 0 ? "Low" : "High"} Threshold</p>
                         <input
                           type="number"
                           value={num}
@@ -314,12 +315,14 @@ const Index = () => {
                         />
                       </div>
                     ))}
-                    <div className="flex gap-2 mt-2">
-                      <Button type="button" onClick={addInput}>
-                        Add Number
-                      </Button>
-                      <Button type="submit">Submit</Button>
-                    </div>
+                    {numbers.length != limit && (
+                      <div className="flex gap-2 mt-2">
+                        <Button type="button" onClick={addInput}>
+                          Add Number
+                        </Button>
+                      </div>
+                    )}
+                    <Button type="submit">Submit</Button>
                   </form>
                 </div>
               </div>
@@ -371,47 +374,66 @@ const Index = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {results.map((c) => (
-                        <TableRow key={c.id} className="hover:bg-blue-50">
-                          <TableCell>{c.name}</TableCell>
-                          <TableCell>{c.email}</TableCell>
-                          <TableCell>{c.phone}</TableCell>
-                          <TableCell
-                            className={
-                              c.atsScore > qualifiedThreshold
-                                ? "text-green-600 font-semibold"
-                                : c.atsScore > reviewThreshold
-                                ? "text-yellow-600 font-semibold"
-                                : "text-red-600 font-semibold"
-                            }
-                          >
-                            {c.atsScore}%
-                          </TableCell>
-                          <TableCell>{c.KeyStrength}</TableCell>
-                          <TableCell>{c.considerations}</TableCell>
-                          <TableCell
-                            className={
-                              c.status === "Qualified"
-                                ? "text-green-600 font-semibold"
-                                : c.status === "Review"
-                                ? "text-yellow-600 font-semibold"
-                                : "text-red-600 font-semibold"
-                            }
-                          >
-                            {c.status}
-                          </TableCell>
-                          <TableCell>{c.videoInterviewStatus}</TableCell>
-                          <TableCell>{c.videoAnalysis}</TableCell>
-                          <TableCell>
-                            <Checkbox
-                              checked={c.shortlisted}
-                              onCheckedChange={(checked) =>
-                                handleShortlist(c.id, Boolean(checked))
+                      {results.map((c) => {
+                        return (
+                          <TableRow key={c.id} className="hover:bg-blue-50">
+                            <TableCell>{c.name}</TableCell>
+                            <TableCell>{c.email}</TableCell>
+                            <TableCell>{c.phone}</TableCell>
+                            <TableCell
+                              className={
+                                c.atsScore > qualifiedThreshold
+                                  ? "text-green-600 font-semibold"
+                                  : c.atsScore > reviewThreshold
+                                  ? "text-yellow-600 font-semibold"
+                                  : "text-red-600 font-semibold"
                               }
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                            >
+                              {c.atsScore}%
+                            </TableCell>
+                            <TableCell>
+                              <ul className="list-disc pl-5">
+                                {c.KeyStrength?.split(",") // split by comma
+                                  .slice(0, 5) // take first 5 items
+                                  .map((item, index) => (
+                                    <li key={index}>{item.trim()}</li>
+                                  ))}
+                              </ul>
+                            </TableCell>
+                            <TableCell>
+                              <ul className="list-disc pl-5">
+                                {c.considerations
+                                  ?.split(",") // split by comma
+                                  .slice(1, 5) // take first 5 items
+                                  .map((item, index) => (
+                                    <li key={index}>{item.trim()}</li>
+                                  ))}
+                              </ul>
+                            </TableCell>
+                            <TableCell
+                              className={
+                                c.status === "Qualified"
+                                  ? "text-green-600 font-semibold"
+                                  : c.status === "Review"
+                                  ? "text-yellow-600 font-semibold"
+                                  : "text-red-600 font-semibold"
+                              }
+                            >
+                              {c.status}
+                            </TableCell>
+                            <TableCell>{c.videoInterviewStatus}</TableCell>
+                            <TableCell>{c.videoAnalysis}</TableCell>
+                            <TableCell>
+                              <Checkbox
+                                checked={c.shortlisted}
+                                onCheckedChange={(checked) =>
+                                  handleShortlist(c.id, Boolean(checked))
+                                }
+                              />
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>

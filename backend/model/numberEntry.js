@@ -6,7 +6,7 @@ const numberEntrySchema = new mongoose.Schema(
     numbers: {
       type: [Number],
       required: true,
-      validate: [(arr) => arr.length <= 3, "Maximum 3 numbers allowed"],
+      validate: [(arr) => arr.length <= 2, "Maximum 2 numbers allowed"],
     },
   },
   { timestamps: true }
