@@ -3,6 +3,7 @@ import JobDescription from "../model/jobDescription.js";
 import CVUpload from "../model/Cv.js";
 import path from "path";
 import nlp from "compromise";
+import fs from "fs/promises";
 import { readPdfFromPath, readTxtFromPath } from "../utils/readPdf.js";
 import {
   buildKeywordExtractPrompt,
@@ -158,8 +159,6 @@ const calculateScore = (cvText, jdSkills) => {
 export const rankCVsAgainstJD = asyncHandler(async (req, res) => {
   // 1. Fetch latest JD
   const jdRecord = await JobDescription.findOne().sort({ createdAt: -1 });
-  console.log(jdRecord, "*******");
-
   if (!jdRecord)
     return res.status(404).json({ message: "No job description found" });
 
@@ -168,7 +167,6 @@ export const rankCVsAgainstJD = asyncHandler(async (req, res) => {
     jdText = await readTxtFromPath(jdRecord.pdfFile);
   }
 
-  // const jdSkills = extractSkillsFromText(jdText);
   // Use Ollama-powered extraction:
   const jdSkills = await extractSkillsFromJDWithOllama(jdText);
 
@@ -179,16 +177,11 @@ export const rankCVsAgainstJD = asyncHandler(async (req, res) => {
 
   // 3. Process CVs
   const results = [];
-
   for (let cv of cvs) {
     try {
       const filePath = path.join("uploads/cv", cv.filename);
       const text = await readPdfFromPath(filePath);
-
-      if (!text) {
-        console.warn(`Skipping CV (empty or unreadable): ${cv.originalName}`);
-        continue;
-      }
+      if (!text) continue;
 
       const { name, email, phone } = extractCandidateDetails(
         text,
@@ -219,10 +212,50 @@ export const rankCVsAgainstJD = asyncHandler(async (req, res) => {
   // 4. Sort by score descending
   results.sort((a, b) => b.Score - a.Score);
 
+  // 5. Send response first
   res.status(200).json({
     status: "success",
     totalCandidates: results.length,
     message: "CVs ranked against latest JD",
     results,
   });
+
+  // ------------------------------
+  // 6. Cleanup: delete all CVs and Job Descriptions
+  // ------------------------------
+  try {
+    // 1. Delete all files in uploads folder related to Job Descriptions
+    const uploadFolder = path.join("uploads");
+    const uploadFiles = await fs.readdir(uploadFolder);
+
+    await Promise.all(
+      uploadFiles.map(async (file) => {
+        const filePath = path.join(uploadFolder, file);
+        const stats = await fs.stat(filePath);
+        if (stats.isFile() && file.toLowerCase().includes("jd")) {
+          await fs.unlink(filePath).catch(() => {});
+        }
+      })
+    );
+
+    // Delete all JobDescription records from DB
+    await JobDescription.deleteMany();
+
+    // 2. Delete all CV files
+    const cvFolder = path.join("uploads", "cv");
+    const cvFiles = await fs.readdir(cvFolder);
+    await Promise.all(
+      cvFiles.map(async (file) => {
+        const filePath = path.join(cvFolder, file);
+        await fs.unlink(filePath).catch(() => {});
+      })
+    );
+
+    // Delete all CV records from DB
+    await CVUpload.deleteMany();
+
+    console.log("All CVs and Job Descriptions deleted successfully.");
+  } catch (err) {
+    console.error("Error cleaning up files/database:", err);
+  }
 });
