@@ -39,6 +39,13 @@ const Index = () => {
   const [showResults, setShowResults] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
+  const [numbers, setNumbers] = useState<number[]>([]);
+
+  // Thresholds for coloring
+  const [qualifiedThreshold, setQualifiedThreshold] = useState(50);
+  const [reviewThreshold, setReviewThreshold] = useState(40);
+  const limit = 2;
+  const userId = "user123";
 
   const [results, setResults] = useState([]);
 
@@ -69,8 +76,96 @@ const Index = () => {
       .filter(Boolean); // remove empty strings
     return words.slice(0, count); // take first 'count' words
   };
+  // ---------------- CANDIDATES ----------------
+  const fetchCandidates = async (numbersArr: number[]) => {
+    setIsProcessing(true);
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("No token found. Please login.");
 
-  const simulateProcessing = async () => {
+      const res = await fetch("http://localhost:5000/api/v1/score/rank-cvs", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) throw new Error("Failed to fetch candidate data");
+      const scoreData = await res.json();
+
+      // Dynamic thresholds
+      const qualifiedThresholdDynamic = numbersArr[1] || 50;
+      const reviewThresholdDynamic = numbersArr[0] || 40;
+
+      setQualifiedThreshold(qualifiedThresholdDynamic);
+      setReviewThreshold(reviewThresholdDynamic);
+
+      const formattedResults = scoreData.results.map((c: any, i: number) => {
+        const atsScore = c?.Score ? Number(c.Score.toFixed(0)) : 0;
+        let status = "Not Qualified";
+        if (atsScore > qualifiedThresholdDynamic) status = "Qualified";
+        else if (atsScore > reviewThresholdDynamic) status = "Review";
+
+        return {
+          id: i + 1,
+          name: c?.Name || "Unknown",
+          email: c?.Email || "Unknown",
+          phone: c?.Phone || "Unknown",
+          atsScore,
+          status,
+          KeyStrength: c?.["Matched Skills"] || "",
+          considerations: c?.["Missing Skills"] || "Solid Experience",
+          videoInterviewStatus: "Pending",
+          videoAnalysis: "No Analysis",
+          shortlisted: false,
+        };
+      });
+
+      setResults(formattedResults);
+      setShowResults(true);
+    } catch (err: any) {
+      console.error(err);
+      toast({ title: "Error", description: err.message });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSubmitNumbers = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch("http://localhost:5000/api/v1/ats/ats-number", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, numbers }),
+      });
+      const data = await res.json();
+      toast({ title: data.message });
+      fetchCandidates(numbers);
+    } catch (err: any) {
+      console.error(err);
+      toast({ title: "Error submitting numbers", description: err.message });
+    }
+  };
+
+  // ---------------- NUMBERS ----------------
+  const handleChangeNumber = (index: number, value: string) => {
+    const updated = [...numbers];
+    updated[index] = Number(value);
+    setNumbers(updated);
+  };
+
+  const addInput = () => {
+    if (numbers.length < limit) setNumbers([...numbers, 0]);
+    else
+      toast({
+        title: "Limit reached",
+        description: `Max ${limit} numbers allowed.`,
+      });
+  };
+
+  const simulateProcessing = async (numbersArr: number[]) => {
     setIsProcessing(true);
 
     try {
@@ -97,38 +192,56 @@ const Index = () => {
 
       const data = await response.json();
 
+      // Dynamic thresholds
+      const qualifiedThresholdDynamic = numbersArr[1] || 50;
+      const reviewThresholdDynamic = numbersArr[0] || 40;
+
       console.log(data, "******");
 
-      const formattedResults = data.results.map((candidate, index) => ({
-        id: index + 1, // unique id
-        name: candidate?.Name || "Unknown",
-        email: candidate?.Email || "Unknown",
-        phone: candidate?.Phone || "Unknown",
-        atsScore: candidate?.Score ? Number(candidate.Score.toFixed(0)) : 0,
-        status: candidate?.Score
-          ? candidate.Score > 50
-            ? "Qualified"
-            : candidate.Score > 40
-            ? "Review"
-            : "Not Qualified"
-          : "Not Available",
-        KeyStrength: candidate?.["Matched Skills"],
-        keywords: (candidate?.["Matched Skills"] || "")
-          .split(/[,|]/)
-          .map((s: string) => s.trim())
-          .filter(Boolean)
-          .slice(0, 5),
-        // considerations: candidate?.["Missing Skills"],
-        considerations: "Solid Experience",
-        videoInterviewStatus: "Pending",
-        videoAnalysis: "No Analysis", exprHappy: 0, exprNeutral: 0, exprSad: 0, exprAngry: 0,
-        interviewEmailSent: true,
-        shortlisted: false,
-      }));
+      const formattedResults = data.results.map(
+        (candidate: any, index: number) => {
+          const atsScore = candidate?.Score
+            ? Number(candidate.Score.toFixed(0))
+            : 0;
+          let status = "Not Qualified";
+          if (atsScore > qualifiedThresholdDynamic) status = "Qualified";
+          else if (atsScore > reviewThresholdDynamic) status = "Review";
+
+          return {
+            id: index + 1, // unique id
+            name: candidate?.Name || "Unknown",
+            email: candidate?.Email || "Unknown",
+            phone: candidate?.Phone || "Unknown",
+            atsScore,
+            status,
+            KeyStrength: candidate?.["Matched Skills"],
+            keywords: (candidate?.["Matched Skills"] || "")
+              .split(/[,|]/)
+              .map((s: string) => s.trim())
+              .filter(Boolean)
+              .slice(0, 5),
+            // considerations: candidate?.["Missing Skills"],
+            considerations: "Solid Experience",
+            videoInterviewStatus: "Pending",
+            videoAnalysis: "No Analysis",
+            exprHappy: 0,
+            exprNeutral: 0,
+            exprSad: 0,
+            exprAngry: 0,
+            interviewEmailSent: true,
+            shortlisted: false,
+          };
+        }
+      );
 
       setResults(formattedResults);
-      try { localStorage.setItem("results", JSON.stringify(formattedResults));
-        try { if (typeof jobDescription !== 'undefined') localStorage.setItem("jobDescription", String(jobDescription)); } catch {} } catch {}
+      try {
+        localStorage.setItem("results", JSON.stringify(formattedResults));
+        //   try {
+        //     if (typeof jobDescription !== "undefined")
+        //       localStorage.setItem("jobDescription", String(jobDescription));
+        //   } catch {}
+      } catch {}
       setShowResults(true);
     } catch (error) {
       console.error(error);
@@ -272,12 +385,42 @@ const Index = () => {
               </div>
               <div className="h-[400px]">
                 <ResumeFolderInput />
+                <div className="mt-4">
+                  <h2 className="text-lg font-semibold mb-2">
+                    Enter ATS Threshold
+                  </h2>
+                  <form onSubmit={handleSubmitNumbers}>
+                    {numbers.map((num, idx) => (
+                      <div key={idx} className="mb-2">
+                        <p>{idx === 0 ? "Low" : "High"} Threshold</p>
+                        <input
+                          type="number"
+                          value={num}
+                          onChange={(e) =>
+                            handleChangeNumber(idx, e.target.value)
+                          }
+                          placeholder={`Number ${idx + 1}`}
+                          className="border p-2 rounded w-full"
+                          required
+                        />
+                      </div>
+                    ))}
+                    <div className="flex gap-2 mt-2">
+                      {numbers.length != limit && (
+                        <Button type="button" onClick={addInput}>
+                          Add Number
+                        </Button>
+                      )}
+                      <Button type="submit">Submit</Button>
+                    </div>
+                  </form>
+                </div>
               </div>
             </div>
 
             <div className="text-center mb-6">
               <Button
-                onClick={simulateProcessing}
+                onClick={() => simulateProcessing(numbers)}
                 disabled={isProcessing}
                 size="lg"
                 className="px-8 py-3 text-lg font-semibold bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 shadow-lg text-white"
@@ -358,7 +501,12 @@ const Index = () => {
                       <TableCell>{candidate.videoAnalysis}</TableCell>
                       <TableCell>
                         {candidate.atsScore > 30 ? (
-                          <a className="underline text-blue-600" href={`/interview?email=${"${candidate.email}"}&name=${"${encodeURIComponent(candidate.name)"} }`}>Start</a>
+                          <a
+                            className="underline text-blue-600"
+                            href={`/interview?email=${"${candidate.email}"}&name=${"${encodeURIComponent(candidate.name)"} }`}
+                          >
+                            Start
+                          </a>
                         ) : (
                           <span className="text-gray-400">N/A</span>
                         )}

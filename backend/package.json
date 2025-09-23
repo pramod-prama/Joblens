@@ -29,6 +29,7 @@
     "mammoth": "^1.10.0",
     "mongoose": "^8.18.0",
     "multer": "^2.0.2",
+    "ollama": "^0.5.18",
     "patch-package": "^8.0.0",
     "path": "^0.12.7",
     "pdf-parse": "^1.1.1",
