@@ -223,39 +223,39 @@ export const rankCVsAgainstJD = asyncHandler(async (req, res) => {
   // ------------------------------
   // 6. Cleanup: delete all CVs and Job Descriptions
   // ------------------------------
-  try {
-    // 1. Delete all files in uploads folder related to Job Descriptions
-    const uploadFolder = path.join("uploads");
-    const uploadFiles = await fs.readdir(uploadFolder);
+  // try {
+  //   // 1. Delete all files in uploads folder related to Job Descriptions
+  //   const uploadFolder = path.join("uploads");
+  //   const uploadFiles = await fs.readdir(uploadFolder);
 
-    await Promise.all(
-      uploadFiles.map(async (file) => {
-        const filePath = path.join(uploadFolder, file);
-        const stats = await fs.stat(filePath);
-        if (stats.isFile() && file.toLowerCase().includes("jd")) {
-          await fs.unlink(filePath).catch(() => {});
-        }
-      })
-    );
+  //   await Promise.all(
+  //     uploadFiles.map(async (file) => {
+  //       const filePath = path.join(uploadFolder, file);
+  //       const stats = await fs.stat(filePath);
+  //       if (stats.isFile() && file.toLowerCase().includes("jd")) {
+  //         await fs.unlink(filePath).catch(() => {});
+  //       }
+  //     })
+  //   );
 
-    // Delete all JobDescription records from DB
-    await JobDescription.deleteMany();
+  //   // Delete all JobDescription records from DB
+  //   await JobDescription.deleteMany();
 
-    // 2. Delete all CV files
-    const cvFolder = path.join("uploads", "cv");
-    const cvFiles = await fs.readdir(cvFolder);
-    await Promise.all(
-      cvFiles.map(async (file) => {
-        const filePath = path.join(cvFolder, file);
-        await fs.unlink(filePath).catch(() => {});
-      })
-    );
+  //   // 2. Delete all CV files
+  //   const cvFolder = path.join("uploads", "cv");
+  //   const cvFiles = await fs.readdir(cvFolder);
+  //   await Promise.all(
+  //     cvFiles.map(async (file) => {
+  //       const filePath = path.join(cvFolder, file);
+  //       await fs.unlink(filePath).catch(() => {});
+  //     })
+  //   );
 
-    // Delete all CV records from DB
-    await CVUpload.deleteMany();
+  //   // Delete all CV records from DB
+  //   await CVUpload.deleteMany();
 
-    console.log("All CVs and Job Descriptions deleted successfully.");
-  } catch (err) {
-    console.error("Error cleaning up files/database:", err);
-  }
+  //   console.log("All CVs and Job Descriptions deleted successfully.");
+  // } catch (err) {
+  //   console.error("Error cleaning up files/database:", err);
+  // }
 });

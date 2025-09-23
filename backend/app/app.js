@@ -23,7 +23,6 @@ import scoreRoute from "../routes/cvRankingRoute.js";
 // Mount your existing routes
 // ------------------------------
 import numberRoute from "../routes/numberRoute.js";
-import questionRoute from "../routes/questionRoutes.js";
 
 // dbConnect
 dbConnect();
@@ -42,7 +41,7 @@ app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/jobDesc", jobDescRoutes);
 app.use("/api/v1/cv", cvRoutes);
 app.use("/api/v1/score", scoreRoute);
-app.use("/api/v1/questions", questionRoute);
+app.use("/api/v1/ats", numberRoute);
 
 // =====================================================================
 // 🔽🔽🔽  O L L A M A   H E L P E R S   (for dynamic questions)  🔽🔽🔽
@@ -88,7 +87,7 @@ Return ONLY valid JSON of the form:
  * Requires: `ollama serve` and a pulled model (e.g., `ollama pull llama3.1:8b`)
  * Node 18+ has global fetch. If on older Node, install node-fetch and import it.
  */
-export async function callOllamaGenerate(prompt) {
+async function callOllamaGenerate(prompt) {
   const base = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
   const model = process.env.OLLAMA_MODEL || "llama3.1:8b";
   const temperature = parseFloat(process.env.DYNQ_TEMPERATURE || "0.35");
@@ -236,12 +235,6 @@ app.post("/api/v1/questions/generate", async (req, res) => {
 // ------------------------------
 // Error middleware (keep as-is)
 // ------------------------------
-app.use(notFound);
-app.use(globalErrhandler);
-
-app.use("/api/v1/ats", numberRoute);
-
-// err middleware
 app.use(notFound);
 app.use(globalErrhandler);
 
