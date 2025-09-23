@@ -23,6 +23,7 @@ import scoreRoute from "../routes/cvRankingRoute.js";
 // Mount your existing routes
 // ------------------------------
 import numberRoute from "../routes/numberRoute.js";
+import questionRoute from "../routes/questionRoutes.js";
 
 // dbConnect
 dbConnect();
@@ -42,6 +43,7 @@ app.use("/api/v1/jobDesc", jobDescRoutes);
 app.use("/api/v1/cv", cvRoutes);
 app.use("/api/v1/score", scoreRoute);
 app.use("/api/v1/ats", numberRoute);
+app.use("/api/v1/questions", questionRoute);
 
 // =====================================================================
 // 🔽🔽🔽  O L L A M A   H E L P E R S   (for dynamic questions)  🔽🔽🔽

@@ -1,10 +1,14 @@
-
 import React, { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSearchParams, useNavigate } from "react-router-dom";
 
-type ExpressionAgg = { happy: number; neutral: number; sad: number; angry: number };
+type ExpressionAgg = {
+  happy: number;
+  neutral: number;
+  sad: number;
+  angry: number;
+};
 
 const captureIntervalMs = 2000; // capture a frame every 2s for expression service (if running)
 const maxQuestions = 5;
@@ -15,19 +19,30 @@ const defaultQuestions = [
   "Walk me through a recent project you enjoyed.",
   "What’s a challenge you solved recently?",
   "Why are you interested in this role?",
-  "Where do you want to grow in the next 12 months?"
+  "Where do you want to grow in the next 12 months?",
 ];
 
-function deriveQuestionsFromKeywords(name: string, jd: string | null, keywords: string[] | undefined) {
+function deriveQuestionsFromKeywords(
+  name: string,
+  jd: string | null,
+  keywords: string[] | undefined
+) {
   const q: string[] = [];
   if (keywords && keywords.length) {
-    q.push(`You mentioned ${keywords[0]}. Can you share a concrete example using ${keywords[0]}?`);
-    if (keywords[1]) q.push(`Rate your proficiency in ${keywords[1]} and describe where you applied it.`);
-    if (keywords[2]) q.push(`What’s the hardest part of ${keywords[2]} in your experience?`);
+    q.push(
+      `You mentioned ${keywords[0]}. Can you share a concrete example using ${keywords[0]}?`
+    );
+    if (keywords[1])
+      q.push(
+        `Rate your proficiency in ${keywords[1]} and describe where you applied it.`
+      );
+    if (keywords[2])
+      q.push(`What’s the hardest part of ${keywords[2]} in your experience?`);
   }
   if (jd) {
     const skills = jd.split(/\W+/).filter(Boolean).slice(0, 3);
-    if (skills.length) q.push(`From this JD, how do you match: ${skills.join(", ")}?`);
+    if (skills.length)
+      q.push(`From this JD, how do you match: ${skills.join(", ")}?`);
   }
   q.push(`Anything else we should know, ${name}?`);
   return q.slice(0, maxQuestions);
@@ -46,7 +61,12 @@ export default function Interview() {
 
   const [dynamicApplied, setDynamicApplied] = useState(false);
   const [dynError, setDynError] = useState<string | null>(null);
-  const [agg, setAgg] = useState<ExpressionAgg>({ happy: 0, neutral: 0, sad: 0, angry: 0 });
+  const [agg, setAgg] = useState<ExpressionAgg>({
+    happy: 0,
+    neutral: 0,
+    sad: 0,
+    angry: 0,
+  });
   const [samples, setSamples] = useState(0);
   const [status, setStatus] = useState("");
 
@@ -57,32 +77,44 @@ export default function Interview() {
   useEffect(() => {
     (async () => {
       try {
-        const resultsRaw = localStorage.getItem('results');
-        const jdText = localStorage.getItem('jobDescription') || '';
+        const resultsRaw = localStorage.getItem("results");
+        const jdText = localStorage.getItem("jobDescription") || "";
         let matchedSkills = [] as string[];
-        let resumeText = '';
+        let resumeText = "";
         if (resultsRaw) {
           try {
             const parsed = JSON.parse(resultsRaw) as any[];
-            const person = parsed.find(r => (r.email||'').toLowerCase() === email.toLowerCase());
+            const person = parsed.find(
+              (r) => (r.email || "").toLowerCase() === email.toLowerCase()
+            );
             if (person?.keywords) matchedSkills = person.keywords;
             if (person?.KeyStrength) resumeText = String(person.KeyStrength);
           } catch {}
         }
-        const resp = await fetch('http://localhost:5000/api/v1/questions/generate', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ resumeText, jobDescription: jdText, matchedSkills })
-        });
-        if (resp.ok){
+        const token = localStorage.getItem("token");
+        if (!token) throw new Error("No token found. Please login.");
+
+        const resp = await fetch(
+          "http://localhost:5000/api/v1//questions/generate-questions",
+          {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+        if (resp.ok) {
           const out = await resp.json();
-          if (out?.ok && Array.isArray(out.questions) && out.questions.length){
+          if (out?.ok && Array.isArray(out.questions) && out.questions.length) {
             setQuestions(out.questions);
             return;
           }
         }
         // fallback to previous derive if backend unavailable
         const dyn = deriveQuestionsFromKeywords(name, jdText, matchedSkills);
-        if (!dynamicApplied && !questions.length && dyn.length >= 3) setQuestions(dyn);
+        if (!dynamicApplied && !questions.length && dyn.length >= 3)
+          setQuestions(dyn);
       } catch {
         // ignore
       }
@@ -97,20 +129,28 @@ export default function Interview() {
     if (resultsRaw) {
       try {
         const parsed = JSON.parse(resultsRaw) as any[];
-        const person = parsed.find(r => (r.email || "").toLowerCase() === email.toLowerCase());
+        const person = parsed.find(
+          (r) => (r.email || "").toLowerCase() === email.toLowerCase()
+        );
         if (person?.keywords) keywords = person.keywords;
         if (!jdText && person?.jd) jdText = person.jd;
       } catch {}
     }
-    if (dynamicApplied || questions.length) { return; }
+    if (dynamicApplied || questions.length) {
+      return;
+    }
     const dyn = deriveQuestionsFromKeywords(name, jdText, keywords);
-    if (!dynamicApplied && !questions.length && dyn.length >= 3) setQuestions(dyn);
+    if (!dynamicApplied && !questions.length && dyn.length >= 3)
+      setQuestions(dyn);
   }, [email, name, dynamicApplied, questions.length]);
 
   useEffect(() => {
     (async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        });
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
@@ -120,8 +160,10 @@ export default function Interview() {
       }
     })();
     return () => {
-      const tracks = (videoRef.current?.srcObject as MediaStream | null)?.getTracks?.() || [];
-      tracks.forEach(t => t.stop());
+      const tracks =
+        (videoRef.current?.srcObject as MediaStream | null)?.getTracks?.() ||
+        [];
+      tracks.forEach((t) => t.stop());
     };
   }, []);
 
@@ -136,10 +178,15 @@ export default function Interview() {
         canvas.height = v.videoHeight;
         const ctx = canvas.getContext("2d")!;
         ctx.drawImage(v, 0, 0);
-        const blob: Blob = await new Promise((res) => canvas.toBlob(b => res(b as Blob), "image/jpeg", 0.8)!);
+        const blob: Blob = await new Promise(
+          (res) => canvas.toBlob((b) => res(b as Blob), "image/jpeg", 0.8)!
+        );
         const form = new FormData();
         form.append("image", blob, "frame.jpg");
-        const resp = await fetch("http://localhost:5001/predict", { method: "POST", body: form });
+        const resp = await fetch("http://localhost:5001/predict", {
+          method: "POST",
+          body: form,
+        });
         if (resp.ok) {
           const data = await resp.json();
           // Expect {dominant: string, probabilities: {happy:0.1, neutral:0.5, sad:..., angry:..., fear:..., disgust:..., surprise:...}}
@@ -147,16 +194,17 @@ export default function Interview() {
           const mapped = {
             happy: (p.happy || 0) + (p.surprise || 0) * 0.3,
             neutral: p.neutral || 0,
-            sad: (p.sad || 0),
-            angry: (p.angry || 0) + (p.fear || 0) * 0.5 + (p.disgust || 0) * 0.5,
+            sad: p.sad || 0,
+            angry:
+              (p.angry || 0) + (p.fear || 0) * 0.5 + (p.disgust || 0) * 0.5,
           };
-          setAgg(prev => ({
+          setAgg((prev) => ({
             happy: prev.happy + mapped.happy,
             neutral: prev.neutral + mapped.neutral,
             sad: prev.sad + mapped.sad,
             angry: prev.angry + mapped.angry,
           }));
-          setSamples(s => s + 1);
+          setSamples((s) => s + 1);
         }
       } catch {
         // Ignore if expression service not running
@@ -172,7 +220,7 @@ export default function Interview() {
       nextQuestion();
       return;
     }
-    const t = setTimeout(() => setTimeLeft(t => t - 1), 1000);
+    const t = setTimeout(() => setTimeLeft((t) => t - 1), 1000);
     return () => clearTimeout(t);
   }, [isRecording, timeLeft]);
 
@@ -182,17 +230,26 @@ export default function Interview() {
     const mr = new MediaRecorder(stream, { mimeType: "video/webm" });
     mediaRecorderRef.current = mr;
     chunksRef.current = [];
-    mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+    mr.ondataavailable = (e) => {
+      if (e.data.size > 0) chunksRef.current.push(e.data);
+    };
     mr.onstop = async () => {
       const blob = new Blob(chunksRef.current, { type: "video/webm" });
-      const file = new File([blob], `${Date.now()}_${email}_answer_q${qIndex+1}.webm`, { type: "video/webm" });
+      const file = new File(
+        [blob],
+        `${Date.now()}_${email}_answer_q${qIndex + 1}.webm`,
+        { type: "video/webm" }
+      );
       // Upload to backend (saves to Drive/local)
       const form = new FormData();
       form.append("file", file);
       form.append("name", name);
       form.append("email", email);
       try {
-        const r = await fetch("http://localhost:5000/upload", { method: "POST", body: form });
+        const r = await fetch("http://localhost:5000/upload", {
+          method: "POST",
+          body: form,
+        });
         const j = await r.json();
         console.log("Uploaded:", j);
       } catch (e) {
@@ -245,7 +302,9 @@ export default function Interview() {
       const raw = localStorage.getItem("results");
       if (raw) {
         const data = JSON.parse(raw);
-        const idx = data.findIndex((r:any) => (r.email||"").toLowerCase() === email.toLowerCase());
+        const idx = data.findIndex(
+          (r: any) => (r.email || "").toLowerCase() === email.toLowerCase()
+        );
         if (idx >= 0) {
           data[idx].exprHappy = result.happy;
           data[idx].exprNeutral = result.neutral;
@@ -269,11 +328,22 @@ export default function Interview() {
             <CardTitle>Video Interview – {name}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <video ref={videoRef} className="w-full rounded-xl shadow" playsInline muted />
+            <video
+              ref={videoRef}
+              className="w-full rounded-xl shadow"
+              playsInline
+              muted
+            />
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm text-gray-600">Question {qIndex + 1} / {questions.length}</div>
-                <div className="text-lg font-semibold">{questions.length ? questions[qIndex] : 'Loading questions...'}</div>
+                <div className="text-sm text-gray-600">
+                  Question {qIndex + 1} / {questions.length}
+                </div>
+                <div className="text-lg font-semibold">
+                  {questions.length
+                    ? questions[qIndex]
+                    : "Loading questions..."}
+                </div>
               </div>
               <div className="text-right">
                 <div className="text-sm text-gray-600">Time left</div>
@@ -284,19 +354,45 @@ export default function Interview() {
               {!isRecording ? (
                 <Button onClick={startRecording}>Start Answer</Button>
               ) : (
-                <Button variant="destructive" onClick={nextQuestion}>Next / Stop</Button>
+                <Button variant="destructive" onClick={nextQuestion}>
+                  Next / Stop
+                </Button>
               )}
-              <Button variant="secondary" onClick={finishInterview}>Finish Now</Button>
+              <Button variant="secondary" onClick={finishInterview}>
+                Finish Now
+              </Button>
             </div>
             <div className="grid grid-cols-4 gap-2 text-center">
-              <div><div className="text-sm text-gray-500">Happy</div><div className="text-xl font-bold">{Math.round(samples? agg.happy / samples * 100 : 0)}%</div></div>
-              <div><div className="text-sm text-gray-500">Neutral</div><div className="text-xl font-bold">{Math.round(samples? agg.neutral / samples * 100 : 0)}%</div></div>
-              <div><div className="text-sm text-gray-500">Sad</div><div className="text-xl font-bold">{Math.round(samples? agg.sad / samples * 100 : 0)}%</div></div>
-              <div><div className="text-sm text-gray-500">Angry</div><div className="text-xl font-bold">{Math.round(samples? agg.angry / samples * 100 : 0)}%</div></div>
+              <div>
+                <div className="text-sm text-gray-500">Happy</div>
+                <div className="text-xl font-bold">
+                  {Math.round(samples ? (agg.happy / samples) * 100 : 0)}%
+                </div>
+              </div>
+              <div>
+                <div className="text-sm text-gray-500">Neutral</div>
+                <div className="text-xl font-bold">
+                  {Math.round(samples ? (agg.neutral / samples) * 100 : 0)}%
+                </div>
+              </div>
+              <div>
+                <div className="text-sm text-gray-500">Sad</div>
+                <div className="text-xl font-bold">
+                  {Math.round(samples ? (agg.sad / samples) * 100 : 0)}%
+                </div>
+              </div>
+              <div>
+                <div className="text-sm text-gray-500">Angry</div>
+                <div className="text-xl font-bold">
+                  {Math.round(samples ? (agg.angry / samples) * 100 : 0)}%
+                </div>
+              </div>
             </div>
             <div className="text-xs text-gray-500">
-              Tip: For best results, ensure good lighting and keep your face within the frame. If you want automatic expression analysis,
-              run the optional Python service (instructions in the README). Otherwise, you can still record and upload your answers.
+              Tip: For best results, ensure good lighting and keep your face
+              within the frame. If you want automatic expression analysis, run
+              the optional Python service (instructions in the README).
+              Otherwise, you can still record and upload your answers.
             </div>
             <div className="text-sm text-gray-600">{status}</div>
           </CardContent>

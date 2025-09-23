@@ -97,8 +97,6 @@ const Index = () => {
 
       const data = await response.json();
 
-      console.log(data, "******");
-
       const formattedResults = data.results.map((candidate, index) => ({
         id: index + 1, // unique id
         name: candidate?.Name || "Unknown",
@@ -121,14 +119,23 @@ const Index = () => {
         // considerations: candidate?.["Missing Skills"],
         considerations: "Solid Experience",
         videoInterviewStatus: "Pending",
-        videoAnalysis: "No Analysis", exprHappy: 0, exprNeutral: 0, exprSad: 0, exprAngry: 0,
+        videoAnalysis: "No Analysis",
+        exprHappy: 0,
+        exprNeutral: 0,
+        exprSad: 0,
+        exprAngry: 0,
         interviewEmailSent: true,
         shortlisted: false,
       }));
 
       setResults(formattedResults);
-      try { localStorage.setItem("results", JSON.stringify(formattedResults));
-        try { if (typeof jobDescription !== 'undefined') localStorage.setItem("jobDescription", String(jobDescription)); } catch {} } catch {}
+      try {
+        localStorage.setItem("results", JSON.stringify(formattedResults));
+        try {
+          if (typeof jobDescription !== "undefined")
+            localStorage.setItem("jobDescription", String(jobDescription));
+        } catch {}
+      } catch {}
       setShowResults(true);
     } catch (error) {
       console.error(error);
@@ -358,7 +365,12 @@ const Index = () => {
                       <TableCell>{candidate.videoAnalysis}</TableCell>
                       <TableCell>
                         {candidate.atsScore > 30 ? (
-                          <a className="underline text-blue-600" href={`/interview?email=${"${candidate.email}"}&name=${"${encodeURIComponent(candidate.name)"} }`}>Start</a>
+                          <a
+                            className="underline text-blue-600"
+                            href={`/interview?email=${"${candidate.email}"}&name=${"${encodeURIComponent(candidate.name)"} }`}
+                          >
+                            Start
+                          </a>
                         ) : (
                           <span className="text-gray-400">N/A</span>
                         )}

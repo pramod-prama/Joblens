@@ -115,7 +115,7 @@ const Index = () => {
           atsScore,
           status,
           KeyStrength: c?.["Matched Skills"] || "",
-          considerations: c?.["Missing Skills"] || "Solid Experience",
+          considerations: c?.["Missing Skills"] || "",
           videoInterviewStatus: "Pending",
           videoAnalysis: "No Analysis",
           shortlisted: false,
@@ -220,8 +220,8 @@ const Index = () => {
               .map((s: string) => s.trim())
               .filter(Boolean)
               .slice(0, 5),
-            // considerations: candidate?.["Missing Skills"],
-            considerations: "Solid Experience",
+            considerations: candidate?.["Missing Skills"],
+            // considerations: "Solid Experience",
             videoInterviewStatus: "Pending",
             videoAnalysis: "No Analysis",
             exprHappy: 0,
@@ -473,19 +473,38 @@ const Index = () => {
                       <TableCell>{candidate.name}</TableCell>
                       <TableCell>{candidate.email}</TableCell>
                       <TableCell>{candidate.phone}</TableCell>
+
                       <TableCell
                         className={
-                          candidate.atsScore >= 85
+                          candidate.atsScore > qualifiedThreshold
                             ? "text-green-600 font-semibold"
-                            : candidate.atsScore >= 50
+                            : candidate.atsScore > reviewThreshold
                             ? "text-yellow-600 font-semibold"
                             : "text-red-600 font-semibold"
                         }
                       >
                         {candidate.atsScore}%
                       </TableCell>
-                      <TableCell>{candidate.KeyStrength}</TableCell>
-                      <TableCell>{candidate.considerations}</TableCell>
+                      <TableCell>
+                        <ul className="list-disc pl-5">
+                          {candidate.KeyStrength?.split(",") // split by comma
+                            .slice(0, 5) // take first 5 items
+                            .map((item, index) => (
+                              <li key={index}>{item.trim()}</li>
+                            ))}
+                        </ul>
+                      </TableCell>
+                      {/* <TableCell>{candidate.considerations}</TableCell> */}
+                      <TableCell>
+                        <ul className="list-disc pl-5">
+                          {candidate.considerations
+                            ?.split(",") // split by comma
+                            .slice(0, 5) // take first 5 items
+                            .map((item, index) => (
+                              <li key={index}>{item.trim()}</li>
+                            ))}
+                        </ul>
+                      </TableCell>
                       <TableCell
                         className={
                           candidate.status === "Qualified"
