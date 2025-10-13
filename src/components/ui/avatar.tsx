@@ -1,48 +1,27 @@
-import * as React from "react"
-import * as AvatarPrimitive from "@radix-ui/react-avatar"
+import { Canvas } from "@react-three/fiber";
+import { Suspense } from "react";
+import { OrbitControls, Center, useGLTF } from "@react-three/drei";
 
-import { cn } from "@/lib/utils"
+const AvatarModel = ({ url }: { url: string }) => {
+  const gltf = useGLTF(url);
+  return <primitive object={gltf.scene} scale={0.8} />;
+};
 
-const Avatar = React.forwardRef<
-  React.ElementRef<typeof AvatarPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Root>
->(({ className, ...props }, ref) => (
-  <AvatarPrimitive.Root
-    ref={ref}
-    className={cn(
-      "relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full",
-      className
-    )}
-    {...props}
-  />
-))
-Avatar.displayName = AvatarPrimitive.Root.displayName
+const Avatar3D = ({ modelSrc }: { modelSrc: string }) => {
+  return (
+    <div className="h-80 w-80 rounded-xl overflow-hidden bg-gray-100">
+      <Canvas camera={{ position: [0, 1.5, 2.5], fov: 30 }}>
+        <ambientLight intensity={1} />
+        <directionalLight position={[3, 3, 5]} intensity={2} />
+        <Suspense fallback={<div>Loading Avatar...</div>}>
+          <Center>
+            <AvatarModel url={modelSrc} />
+          </Center>
+        </Suspense>
+        <OrbitControls enablePan={false} enableZoom={false} autoRotate />
+      </Canvas>
+    </div>
+  );
+};
 
-const AvatarImage = React.forwardRef<
-  React.ElementRef<typeof AvatarPrimitive.Image>,
-  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Image>
->(({ className, ...props }, ref) => (
-  <AvatarPrimitive.Image
-    ref={ref}
-    className={cn("aspect-square h-full w-full", className)}
-    {...props}
-  />
-))
-AvatarImage.displayName = AvatarPrimitive.Image.displayName
-
-const AvatarFallback = React.forwardRef<
-  React.ElementRef<typeof AvatarPrimitive.Fallback>,
-  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Fallback>
->(({ className, ...props }, ref) => (
-  <AvatarPrimitive.Fallback
-    ref={ref}
-    className={cn(
-      "flex h-full w-full items-center justify-center rounded-full bg-muted",
-      className
-    )}
-    {...props}
-  />
-))
-AvatarFallback.displayName = AvatarPrimitive.Fallback.displayName
-
-export { Avatar, AvatarImage, AvatarFallback }
+export default Avatar3D;

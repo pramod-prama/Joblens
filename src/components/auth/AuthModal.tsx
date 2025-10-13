@@ -47,7 +47,7 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   mode: "login" | "signup";
-  onSuccess: () => void;
+  onSuccess: (email: string, token: string) => void; // ✅ return token
 }
 
 const AuthModal = ({ isOpen, onClose, mode, onSuccess }: AuthModalProps) => {
@@ -77,18 +77,13 @@ const AuthModal = ({ isOpen, onClose, mode, onSuccess }: AuthModalProps) => {
       let data;
 
       if (currentMode === "login") {
-        // ✅ Login
         data = await apiClient("http://localhost:5000/api/v1/users/login", {
           method: "POST",
           body: JSON.stringify({ email, password }),
         });
 
-        toast({
-          title: "Success",
-          description: "Logged in successfully!",
-        });
+        toast({ title: "Success", description: "Logged in successfully!" });
       } else {
-        // ✅ Signup
         data = await apiClient("http://localhost:5000/api/v1/users/register", {
           method: "POST",
           body: JSON.stringify({ name, email, password }),
@@ -100,10 +95,12 @@ const AuthModal = ({ isOpen, onClose, mode, onSuccess }: AuthModalProps) => {
         });
       }
 
-      // ✅ Save token
+      // ✅ Save token in localStorage
       localStorage.setItem("token", data.token);
 
-      onSuccess();
+      // ✅ Pass email and token to parent
+      onSuccess(email, data.token);
+
       resetForm();
     } catch (error: any) {
       toast({

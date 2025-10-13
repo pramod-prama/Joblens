@@ -1,8 +1,8 @@
 import asyncHandler from "express-async-handler";
 import JobDescription from "../model/jobDescription.js";
 import CVUpload from "../model/Cv.js";
+import Candidate from "../model/candidate.js";
 import path from "path";
-import nlp from "compromise";
 import fs from "fs/promises";
 import { readPdfFromPath, readTxtFromPath } from "../utils/readPdf.js";
 import {
@@ -11,51 +11,24 @@ import {
   safeParseJSON,
 } from "../utils/ollama.js";
 
+// ------------------------------
+// Utility: Extract JD skills using Ollama
+// ------------------------------
 async function extractSkillsFromJDWithOllama(jdText) {
   const prompt = buildKeywordExtractPrompt(jdText);
   const raw = await callOllamaGenerate(prompt);
-
   const parsed = safeParseJSON(raw);
   if (parsed && Array.isArray(parsed.skills)) {
     return parsed.skills.map((s) => s.toLowerCase().trim());
   }
-
   return [];
 }
-
-// ------------------------------
-// Utility: Extract skills from JD text
-// ------------------------------
-// const extractSkillsFromText = (text) => {
-//   const doc = nlp(text);
-//   const skillsSet = new Set();
-
-//   // Extract nouns
-//   doc
-//     .nouns()
-//     .out("array")
-//     .forEach((s) => {
-//       s = s.toLowerCase().replace(/[^a-z0-9+#.-]/g, "");
-//       if (s && !STOPWORDS.has(s)) skillsSet.add(s);
-//     });
-
-//   // Extract tech/keywords (letters, numbers, +, #, .)
-//   const custom = text.match(/\b[A-Za-z0-9.+/#-]+\b/g) || [];
-//   custom.forEach((s) => {
-//     s = s.toLowerCase();
-//     if (s && !STOPWORDS.has(s)) skillsSet.add(s);
-//   });
-
-//   return Array.from(skillsSet);
-// };
 
 // ------------------------------
 // Utility: Extract candidate details
 // ------------------------------
 const extractCandidateDetails = (text, fileName) => {
   const emailMatch = text.match(/[\w.-]+@[\w.-]+\.\w+/);
-
-  // Match phone numbers: optional +, 10-15 digits, may include spaces, dashes, or parentheses
   const phoneMatch = text.match(
     /(\+?\d{1,4}[\s-]?\(?\d{1,4}\)?[\s-]?\d{3,4}[\s-]?\d{3,4})/
   );
@@ -72,7 +45,6 @@ const extractCandidateDetails = (text, fileName) => {
       !/\d{4,}/.test(line) &&
       line.split(" ").length <= 5
     ) {
-      // Avoid lines with 4+ consecutive digits (likely years)
       name = line.replace(/[^a-zA-Z\s]/g, "");
       break;
     }
@@ -87,10 +59,8 @@ const extractCandidateDetails = (text, fileName) => {
   };
 };
 
-// optimized the result -
-
 // ------------------------------
-// Stopwords to ignore
+// Utility: Calculate score
 // ------------------------------
 const STOPWORDS = new Set([
   "a",
@@ -119,9 +89,6 @@ const STOPWORDS = new Set([
   "you",
 ]);
 
-// ------------------------------
-// Utility: Calculate score
-// ------------------------------
 const calculateScore = (cvText, jdSkills) => {
   const cvTextLower = cvText
     .toLowerCase()
@@ -129,7 +96,7 @@ const calculateScore = (cvText, jdSkills) => {
       /\b(an|the|and|or|of|in|on|for|with|to|be|is|are|it|at|from|as|by|that|this|if|we|you)\b/g,
       ""
     )
-    .replace(/[^a-z0-9+#.-]/g, " "); // remove punctuation
+    .replace(/[^a-z0-9+#.-]/g, " ");
 
   const matched = [...jdSkills].filter((s) => cvTextLower.includes(s));
   const gap = [...jdSkills].filter((s) => !cvTextLower.includes(s));
@@ -149,38 +116,74 @@ const calculateScore = (cvText, jdSkills) => {
   }
 
   score = Math.min(100, score + bonus);
-
   return { score, matched, gap, bonus, reasons: reasons.join("; ") };
 };
 
 // ------------------------------
-// Controller: Rank all CVs
+// Utility: Get latest JD file (.txt) if description missing
+// ------------------------------
+async function getLatestJDFile() {
+  const folder = path.join("uploads");
+  const files = await fs.readdir(folder);
+  const txtFiles = files.filter((f) => f.endsWith(".txt"));
+  if (!txtFiles.length) return null;
+
+  const stats = await Promise.all(
+    txtFiles.map(async (f) => ({
+      file: f,
+      stat: await fs.stat(path.join(folder, f)),
+    }))
+  );
+  stats.sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
+  return path.join(folder, stats[0].file);
+}
+
+// ------------------------------
+// Controller: Rank CVs against JD
 // ------------------------------
 export const rankCVsAgainstJD = asyncHandler(async (req, res) => {
-  // 1. Fetch latest JD
-  const jdRecord = await JobDescription.findOne().sort({ createdAt: -1 });
-  if (!jdRecord)
-    return res.status(404).json({ message: "No job description found" });
+  // 1️⃣ Get JD from DB
+  let jdRecord = await JobDescription.findOne().sort({ createdAt: -1 });
+  let jdText = jdRecord?.description || "";
 
-  let jdText = jdRecord.description || "";
-  if (!jdText && jdRecord?.pdfFile) {
-    jdText = await readTxtFromPath(jdRecord.pdfFile);
+  // 2️⃣ If no JD in DB, try latest .txt file
+  if (!jdText) {
+    const latestFile = await getLatestJDFile();
+    if (!latestFile) {
+      return res
+        .status(400)
+        .json({ status: "fail", message: "No job description found" });
+    }
+    try {
+      jdText = await readTxtFromPath(latestFile);
+    } catch (err) {
+      console.error("Failed to read JD file:", latestFile, err);
+      return res
+        .status(500)
+        .json({ status: "error", message: "Failed to read JD file" });
+    }
   }
 
-  // Use Ollama-powered extraction:
   const jdSkills = await extractSkillsFromJDWithOllama(jdText);
 
-  // 2. Fetch all CVs
+  // 3️⃣ Get all CVs
   const cvs = await CVUpload.find();
   if (!cvs.length)
-    return res.status(404).json({ message: "No CVs uploaded yet" });
+    return res.status(404).json({ status: "fail", message: "No CVs uploaded" });
 
-  // 3. Process CVs
   const results = [];
+
+  // 4️⃣ Process each CV
   for (let cv of cvs) {
     try {
       const filePath = path.join("uploads/cv", cv.filename);
-      const text = await readPdfFromPath(filePath);
+      let text = "";
+      try {
+        text = await readPdfFromPath(filePath);
+      } catch (err) {
+        console.error("Failed to read PDF:", filePath, err);
+        continue; // skip corrupted PDF
+      }
       if (!text) continue;
 
       const { name, email, phone } = extractCandidateDetails(
@@ -191,6 +194,20 @@ export const rankCVsAgainstJD = asyncHandler(async (req, res) => {
         text,
         jdSkills
       );
+
+      // 🔍 Merge emotion data
+      const candidate = await Candidate.findOne({ $or: [{ email }, { name }] });
+      let videoData = null;
+      if (candidate) {
+        videoData = {
+          Status: candidate.videoInterviewStatus || "Pending",
+          Happy: candidate.videoAnalysis?.happy ?? 0,
+          Neutral: candidate.videoAnalysis?.neutral ?? 0,
+          Sad: candidate.videoAnalysis?.sad ?? 0,
+          Angry: candidate.videoAnalysis?.angry ?? 0,
+          Dominant: candidate.videoAnalysis?.dominant ?? "Neutral",
+        };
+      }
 
       results.push({
         "Candidate File": cv.originalName,
@@ -203,59 +220,20 @@ export const rankCVsAgainstJD = asyncHandler(async (req, res) => {
         "Matched Skills": matched.join(", "),
         "Missing Skills": gap.join(", "),
         "JD Skills": [...jdSkills].join(", "),
+        "Video Interview": videoData,
       });
     } catch (err) {
       console.error("Error processing CV:", cv.originalName, err);
     }
   }
 
-  // 4. Sort by score descending
+  // 5️⃣ Sort by score
   results.sort((a, b) => b.Score - a.Score);
 
-  // 5. Send response first
   res.status(200).json({
     status: "success",
     totalCandidates: results.length,
-    message: "CVs ranked against latest JD",
+    message: "CVs ranked against JD (with interview data)",
     results,
   });
-
-  // ------------------------------
-  // 6. Cleanup: delete all CVs and Job Descriptions
-  // ------------------------------
-  // try {
-  //   // 1. Delete all files in uploads folder related to Job Descriptions
-  //   const uploadFolder = path.join("uploads");
-  //   const uploadFiles = await fs.readdir(uploadFolder);
-
-  //   await Promise.all(
-  //     uploadFiles.map(async (file) => {
-  //       const filePath = path.join(uploadFolder, file);
-  //       const stats = await fs.stat(filePath);
-  //       if (stats.isFile() && file.toLowerCase().includes("jd")) {
-  //         await fs.unlink(filePath).catch(() => {});
-  //       }
-  //     })
-  //   );
-
-  //   // Delete all JobDescription records from DB
-  //   await JobDescription.deleteMany();
-
-  //   // 2. Delete all CV files
-  //   const cvFolder = path.join("uploads", "cv");
-  //   const cvFiles = await fs.readdir(cvFolder);
-  //   await Promise.all(
-  //     cvFiles.map(async (file) => {
-  //       const filePath = path.join(cvFolder, file);
-  //       await fs.unlink(filePath).catch(() => {});
-  //     })
-  //   );
-
-  //   // Delete all CV records from DB
-  //   await CVUpload.deleteMany();
-
-  //   console.log("All CVs and Job Descriptions deleted successfully.");
-  // } catch (err) {
-  //   console.error("Error cleaning up files/database:", err);
-  // }
 });

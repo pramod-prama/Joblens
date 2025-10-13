@@ -1,100 +1,112 @@
-import React, { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import avatar from "../../public/images/avatar.jpg";
 
-type ExpressionAgg = {
-  happy: number;
-  neutral: number;
-  sad: number;
+// ---------------- MorphCast loader + globals ----------------
+declare global {
+  interface Window {
+    CY?: any;
+    MphTools?: any;
+  }
+}
+
+async function loadMorphcastScripts(): Promise<void> {
+  function load(src: string, dataConfig?: string) {
+    return new Promise<void>((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src;
+      if (dataConfig) s.setAttribute("data-config", dataConfig);
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error(`Failed to load ${src}`));
+      document.head.appendChild(s);
+    });
+  }
+  await load(
+    "https://sdk.morphcast.com/mphtools/v1.1/mphtools.js",
+    "cameraPrivacyPopup, compatibilityUI, compatibilityAutoCheck"
+  );
+  await load("https://ai-sdk.morphcast.com/v1.16/ai-sdk.js");
+}
+
+// ---------------- Types & constants ----------------
+type EmotionAgg = {
   angry: number;
+  disgust: number;
+  fear: number;
+  happy: number;
+  sad: number;
+  surprise: number;
+  neutral: number;
 };
 
-const captureIntervalMs = 2000; // capture a frame every 2s for expression service (if running)
-const maxQuestions = 5;
 const answerSeconds = 25;
+const MORPHCAST_LICENSE = "sk6abf680451ae1d1a7e6abc1e7c183f056e4270c87769";
 
-const defaultQuestions = [
-  "Tell me about yourself.",
-  "Walk me through a recent project you enjoyed.",
-  "What’s a challenge you solved recently?",
-  "Why are you interested in this role?",
-  "Where do you want to grow in the next 12 months?",
-];
-
-function deriveQuestionsFromKeywords(
-  name: string,
-  jd: string | null,
-  keywords: string[] | undefined
-) {
-  const q: string[] = [];
-  if (keywords && keywords.length) {
-    q.push(
-      `You mentioned ${keywords[0]}. Can you share a concrete example using ${keywords[0]}?`
+async function askForMedia(videoEl: HTMLVideoElement | null): Promise<boolean> {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user" },
+      audio: true,
+    });
+    if (videoEl) {
+      videoEl.srcObject = stream;
+      await videoEl.play();
+    }
+    return true;
+  } catch (err: any) {
+    const msg = String(err?.name || err?.message || err);
+    alert(
+      "Camera/Mic is blocked. Please:\n" +
+        "1) Click the padlock (address bar) and set Camera/Mic to Allow\n" +
+        "2) Windows Settings > Privacy & security > Camera/Microphone: enable for desktop apps\n" +
+        "3) Close Zoom/Teams/OBS if using the camera\n\n" +
+        "Error: " +
+        msg
     );
-    if (keywords[1])
-      q.push(
-        `Rate your proficiency in ${keywords[1]} and describe where you applied it.`
-      );
-    if (keywords[2])
-      q.push(`What’s the hardest part of ${keywords[2]} in your experience?`);
+    return false;
   }
-  if (jd) {
-    const skills = jd.split(/\W+/).filter(Boolean).slice(0, 3);
-    if (skills.length)
-      q.push(`From this JD, how do you match: ${skills.join(", ")}?`);
-  }
-  q.push(`Anything else we should know, ${name}?`);
-  return q.slice(0, maxQuestions);
 }
 
 export default function Interview() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const animationRef = useRef<number | null>(null);
+
   const [params] = useSearchParams();
-  const navigate = useNavigate();
-  const [isRecording, setIsRecording] = useState(false);
-  const [timeLeft, setTimeLeft] = useState<number>(answerSeconds);
-  const [qIndex, setQIndex] = useState(0);
-  const [questions, setQuestions] = useState<string[]>([]);
-
-  const [dynamicApplied, setDynamicApplied] = useState(false);
-  const [dynError, setDynError] = useState<string | null>(null);
-  const [agg, setAgg] = useState<ExpressionAgg>({
-    happy: 0,
-    neutral: 0,
-    sad: 0,
-    angry: 0,
-  });
-  const [samples, setSamples] = useState(0);
-  const [status, setStatus] = useState("");
-
   const email = params.get("email") || "";
   const name = params.get("name") || "Candidate";
 
-  // Fetch dynamic questions from backend using JD + matched skills stored in localStorage
+  const [questions, setQuestions] = useState<string[]>([]);
+  const [qIndex, setQIndex] = useState(0);
+  const [timeLeft, setTimeLeft] = useState<number>(answerSeconds);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [apiLoaded, setApiLoaded] = useState(false);
+
+  const [mcReady, setMcReady] = useState(false);
+  const [mcStatus, setMcStatus] = useState<string>("");
+  const [agg, setAgg] = useState<EmotionAgg>({
+    angry: 0,
+    disgust: 0,
+    fear: 0,
+    happy: 0,
+    sad: 0,
+    surprise: 0,
+    neutral: 0,
+  });
+  const [avgAgg, setAvgAgg] = useState<EmotionAgg>({ ...agg });
+  const [samples, setSamples] = useState(0);
+  const [dominantEmotion, setDominantEmotion] = useState("Neutral");
+
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  // --------- Fetch questions ---------
   useEffect(() => {
     (async () => {
       try {
-        const resultsRaw = localStorage.getItem("results");
-        const jdText = localStorage.getItem("jobDescription") || "";
-        let matchedSkills = [] as string[];
-        let resumeText = "";
-        if (resultsRaw) {
-          try {
-            const parsed = JSON.parse(resultsRaw) as any[];
-            const person = parsed.find(
-              (r) => (r.email || "").toLowerCase() === email.toLowerCase()
-            );
-            if (person?.keywords) matchedSkills = person.keywords;
-            if (person?.KeyStrength) resumeText = String(person.KeyStrength);
-          } catch {}
-        }
-        // const resp = await fetch('http://localhost:5000/api/v1/questions/generate', {
-        //   method: 'POST', headers: { 'Content-Type': 'application/json' },
-        //   body: JSON.stringify({ resumeText, jobDescription: jdText, matchedSkills })
-        // });
         const token = localStorage.getItem("token");
         if (!token) throw new Error("No token found. Please login.");
 
@@ -112,59 +124,26 @@ export default function Interview() {
         if (resp.status === 401 || resp.status === 403) {
           throw new Error("Invalid/Expired token, please login again");
         }
-        if (!resp.ok) throw new Error("Failed to fetch data");
-        const data = await resp.json();
+        if (!resp.ok) throw new Error("Failed to fetch questions");
 
-        setQuestions(data.questions);
-        // fallback to previous derive if backend unavailable
-        const dyn = deriveQuestionsFromKeywords(name, jdText, matchedSkills);
-        if (!dynamicApplied && !questions.length && dyn.length >= 3)
-          setQuestions(dyn);
-      } catch {
-        // ignore
+        const data = await resp.json();
+        setQuestions(data.questions || []);
+        setApiLoaded(true);
+      } catch (err: any) {
+        alert("Failed to load questions: " + (err?.message || err));
       }
     })();
-  }, [email, name, dynamicApplied, questions.length]);
+  }, []);
 
+  // --------- Camera ---------
   useEffect(() => {
-    // Build questions from localStorage results + JD if present
-    const resultsRaw = localStorage.getItem("results");
-    let jdText: string | null = localStorage.getItem("jobDescription");
-    let keywords: string[] | undefined = undefined;
-    if (resultsRaw) {
-      try {
-        const parsed = JSON.parse(resultsRaw) as any[];
-        const person = parsed.find(
-          (r) => (r.email || "").toLowerCase() === email.toLowerCase()
-        );
-        if (person?.keywords) keywords = person.keywords;
-        if (!jdText && person?.jd) jdText = person.jd;
-      } catch {}
-    }
-    if (dynamicApplied || questions.length) {
-      return;
-    }
-    const dyn = deriveQuestionsFromKeywords(name, jdText, keywords);
-    if (!dynamicApplied && !questions.length && dyn.length >= 3)
-      setQuestions(dyn);
-  }, [email, name, dynamicApplied, questions.length]);
-
-  useEffect(() => {
+    let active = true;
     (async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true,
-        });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-      } catch (err) {
-        alert("Camera/Mic access denied: " + (err as any)?.message);
-      }
+      if (!active) return;
+      await askForMedia(videoRef.current);
     })();
     return () => {
+      active = false;
       const tracks =
         (videoRef.current?.srcObject as MediaStream | null)?.getTracks?.() ||
         [];
@@ -172,66 +151,144 @@ export default function Interview() {
     };
   }, []);
 
-  // Periodically capture a frame and ask local Python expression service (optional)
+  // --------- MorphCast init ---------
   useEffect(() => {
-    const id = setInterval(async () => {
-      if (!isRecording) return;
-      try {
-        const canvas = document.createElement("canvas");
-        const v = videoRef.current!;
-        canvas.width = v.videoWidth;
-        canvas.height = v.videoHeight;
-        const ctx = canvas.getContext("2d")!;
-        ctx.drawImage(v, 0, 0);
-        const blob: Blob = await new Promise(
-          (res) => canvas.toBlob((b) => res(b as Blob), "image/jpeg", 0.8)!
-        );
-        const form = new FormData();
-        form.append("image", blob, "frame.jpg");
-        const resp = await fetch("http://localhost:5001/predict", {
-          method: "POST",
-          body: form,
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          // Expect {dominant: string, probabilities: {happy:0.1, neutral:0.5, sad:..., angry:..., fear:..., disgust:..., surprise:...}}
-          const p = data.probabilities || {};
-          const mapped = {
-            happy: (p.happy || 0) + (p.surprise || 0) * 0.3,
-            neutral: p.neutral || 0,
-            sad: p.sad || 0,
-            angry:
-              (p.angry || 0) + (p.fear || 0) * 0.5 + (p.disgust || 0) * 0.5,
-          };
-          setAgg((prev) => ({
-            happy: prev.happy + mapped.happy,
-            neutral: prev.neutral + mapped.neutral,
-            sad: prev.sad + mapped.sad,
-            angry: prev.angry + mapped.angry,
-          }));
-          setSamples((s) => s + 1);
-        }
-      } catch {
-        // Ignore if expression service not running
-      }
-    }, captureIntervalMs);
-    return () => clearInterval(id);
-  }, [isRecording]);
+    let cancelled = false;
+    let engine: any = null;
 
-  // Timer per question
+    function handleEmotionEvent(evt: any) {
+      if (cancelled || !isRecording || isPaused) return;
+      const detail = evt?.detail || evt;
+      const out =
+        detail?.output ||
+        detail?.data ||
+        (detail?.result ? detail.result : undefined) ||
+        undefined;
+      const emo =
+        out?.face?.emotion || out?.face0?.emotion || out?.emotion || null;
+      if (!emo) return;
+
+      const vals = {
+        angry: Number(emo.angry ?? emo.Angry ?? 0),
+        disgust: Number(emo.disgust ?? emo.Disgust ?? 0),
+        fear: Number(emo.fear ?? emo.Fear ?? 0),
+        happy: Number(emo.happy ?? emo.Happy ?? 0),
+        sad: Number(emo.sad ?? emo.Sad ?? 0),
+        surprise: Number(emo.surprise ?? emo.Surprise ?? 0),
+        neutral: Number(emo.neutral ?? emo.Neutral ?? 0),
+      };
+
+      const [dominantKey] = Object.entries(vals).reduce(
+        (max, curr) => (curr[1] > max[1] ? curr : max),
+        ["neutral", 0]
+      );
+
+      setAgg((prev) => {
+        const updated = { ...prev, [dominantKey]: prev[dominantKey] + 1 };
+        const total = Object.values(updated).reduce((a, b) => a + b, 1);
+        setAvgAgg({
+          angry: Math.round((updated.angry / total) * 100),
+          disgust: Math.round((updated.disgust / total) * 100),
+          fear: Math.round((updated.fear / total) * 100),
+          happy: Math.round((updated.happy / total) * 100),
+          sad: Math.round((updated.sad / total) * 100),
+          surprise: Math.round((updated.surprise / total) * 100),
+          neutral: Math.round((updated.neutral / total) * 100),
+        });
+
+        const domEmotion = Object.entries(updated).reduce(
+          (a, b) => (b[1] > a[1] ? b : a),
+          ["neutral", 0]
+        )[0];
+        setDominantEmotion(
+          domEmotion.charAt(0).toUpperCase() + domEmotion.slice(1)
+        );
+
+        setSamples(total);
+        return updated;
+      });
+    }
+
+    (async () => {
+      try {
+        await loadMorphcastScripts();
+        if (window.MphTools?.CompatibilityAutoCheck) {
+          window.MphTools.CompatibilityAutoCheck.run?.();
+        }
+
+        if (!videoRef.current?.srcObject) {
+          const ok = await askForMedia(videoRef.current);
+          if (!ok) {
+            setMcStatus("Camera/Mic permission blocked.");
+            return;
+          }
+        }
+
+        const CY = (window as any).CY;
+        if (!CY) throw new Error("MorphCast CY not available");
+
+        const source = CY.createSource.fromVideoElement(videoRef.current);
+        let loader = CY.loader()
+          .addModule(CY.modules().FACE_DETECTOR.name)
+          .addModule(CY.modules().FACE_EMOTION.name)
+          .source(source);
+
+        if (MORPHCAST_LICENSE) {
+          loader = loader.licenseKey(MORPHCAST_LICENSE);
+        }
+
+        engine = await loader.load();
+
+        window.addEventListener("CY_FACE_EMOTION", handleEmotionEvent as any);
+        window.addEventListener(
+          "CY_FACE_EMOTION_RESULT",
+          handleEmotionEvent as any
+        );
+        window.addEventListener("cy.face.emotion", handleEmotionEvent as any);
+
+        await engine.start();
+        if (!cancelled) {
+          setMcReady(true);
+          setMcStatus("Emotion AI ready. Will record only when answering.");
+        }
+      } catch (e: any) {
+        setMcStatus("MorphCast init error: " + (e?.message || String(e)));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("CY_FACE_EMOTION", handleEmotionEvent as any);
+      window.removeEventListener(
+        "CY_FACE_EMOTION_RESULT",
+        handleEmotionEvent as any
+      );
+      window.removeEventListener("cy.face.emotion", handleEmotionEvent as any);
+      (async () => {
+        try {
+          await engine?.stop?.();
+          await engine?.destroy?.();
+        } catch {}
+      })();
+    };
+  }, [isRecording, isPaused]);
+
+  // --------- Timer per question ---------
   useEffect(() => {
-    if (!isRecording) return;
+    if (!isRecording || isPaused || isSpeaking) return;
     if (timeLeft <= 0) {
       nextQuestion();
       return;
     }
     const t = setTimeout(() => setTimeLeft((t) => t - 1), 1000);
     return () => clearTimeout(t);
-  }, [isRecording, timeLeft]);
+  }, [isRecording, timeLeft, isPaused, isSpeaking]);
 
+  // --------- Recording ---------
   const startRecording = () => {
     const stream = videoRef.current?.srcObject as MediaStream;
     if (!stream) return;
+
     const mr = new MediaRecorder(stream, { mimeType: "video/webm" });
     mediaRecorderRef.current = mr;
     chunksRef.current = [];
@@ -245,164 +302,242 @@ export default function Interview() {
         `${Date.now()}_${email}_answer_q${qIndex + 1}.webm`,
         { type: "video/webm" }
       );
-      // Upload to backend (saves to Drive/local)
-      const form = new FormData();
-      form.append("file", file);
-      form.append("name", name);
-      form.append("email", email);
-      try {
-        const r = await fetch("http://localhost:5000/upload", {
-          method: "POST",
-          body: form,
-        });
-        const j = await r.json();
-        console.log("Uploaded:", j);
-      } catch (e) {
-        console.error("Upload failed", e);
-      }
     };
+
     mr.start();
     setIsRecording(true);
+    setIsPaused(false);
     setTimeLeft(answerSeconds);
-    setStatus("Recording...");
   };
 
-  const stopRecording = () => {
-    mediaRecorderRef.current?.stop();
-    setIsRecording(false);
-    setStatus("Stopped");
+  // --------- Speak with volume-based mouth animation ---------
+  const speakQuestion = (q: string) => {
+    if (!q) return;
+
+    setTimeLeft(answerSeconds); // Reset timer at start
+    setIsSpeaking(true);
+
+    const utterance = new SpeechSynthesisUtterance(q);
+    utterance.rate = 0.85;
+    utterance.pitch = 1.1;
+    utterance.lang = "en-US";
+
+    const mouthEl = document.querySelector(".animate-mouth") as HTMLDivElement;
+    if (!mouthEl) return;
+
+    const audioCtx = new AudioContext();
+    const analyser = audioCtx.createAnalyser();
+    const source = audioCtx.createMediaStreamSource(
+      videoRef.current!.srcObject as MediaStream
+    );
+    source.connect(analyser);
+    analyser.fftSize = 256;
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+    const animateMouth = () => {
+      analyser.getByteFrequencyData(dataArray);
+      const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+      const height = Math.min(10, 2 + avg / 25);
+      mouthEl.style.height = `${height}px`;
+      animationRef.current = requestAnimationFrame(animateMouth);
+    };
+
+    animationRef.current = requestAnimationFrame(animateMouth);
+
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      mouthEl.style.height = "2px";
+      startRecording();
+      audioCtx.close();
+    };
+
+    speechSynthesis.cancel();
+    speechSynthesis.speak(utterance);
   };
 
-  const nextQuestion = () => {
-    stopRecording();
-    if (qIndex < questions.length - 1) {
-      setTimeout(() => {
-        setQIndex(qIndex + 1);
-        startRecording();
-      }, 600);
+  const togglePause = () => {
+    if (!mediaRecorderRef.current) return;
+    if (isPaused) {
+      mediaRecorderRef.current.resume();
+      setIsPaused(false);
     } else {
-      finishInterview();
+      mediaRecorderRef.current.pause();
+      setIsPaused(true);
     }
   };
 
-  const finishInterview = async () => {
-    stopRecording();
-    // Compute normalized percentages
-    const n = Math.max(1, samples);
-    const result = {
-      happy: Math.round((agg.happy / n) * 100),
-      neutral: Math.round((agg.neutral / n) * 100),
-      sad: Math.round((agg.sad / n) * 100),
-      angry: Math.round((agg.angry / n) * 100),
+  const nextQuestion = () => {
+    if (mediaRecorderRef.current) mediaRecorderRef.current.stop();
+
+    setTimeLeft(answerSeconds);
+
+    if (qIndex + 1 < questions.length) {
+      const nextIndex = qIndex + 1;
+      setQIndex(nextIndex);
+      speakQuestion(questions[nextIndex]);
+    } else {
+      setIsRecording(false);
+      persistMorphcastSummary();
+    }
+  };
+
+  const persistMorphcastSummary = () => {
+    if (!email) return;
+    const total = samples || 1;
+    const summary = {
+      email,
+      name,
+      timestamp: Date.now(),
+      happy: Math.round((agg.happy / total) * 100),
+      neutral: Math.round((agg.neutral / total) * 100),
+      sad: Math.round((agg.sad / total) * 100),
+      angry: Math.round((agg.angry / total) * 100),
+      source: "MorphCast",
     };
     try {
-      await fetch("http://localhost:5000/api/v1/interview/results", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, ...result }),
-      });
+      localStorage.setItem(
+        "morphcastEmotion:" + email.toLowerCase(),
+        JSON.stringify(summary)
+      );
     } catch {}
-    // Update localStorage 'results' for dashboard
+  };
+
+  const finishInterview = async () => {
+    persistMorphcastSummary();
+    if (mediaRecorderRef.current) mediaRecorderRef.current.stop();
+    setIsRecording(false);
+
+    const emotions = {
+      angry: avgAgg.angry,
+      disgust: avgAgg.disgust,
+      fear: avgAgg.fear,
+      happy: avgAgg.happy,
+      sad: avgAgg.sad,
+      surprise: avgAgg.surprise,
+      neutral: avgAgg.neutral,
+      dominant: dominantEmotion,
+    };
+
     try {
-      const raw = localStorage.getItem("results");
-      if (raw) {
-        const data = JSON.parse(raw);
-        const idx = data.findIndex(
-          (r: any) => (r.email || "").toLowerCase() === email.toLowerCase()
-        );
-        if (idx >= 0) {
-          data[idx].exprHappy = result.happy;
-          data[idx].exprNeutral = result.neutral;
-          data[idx].exprSad = result.sad;
-          data[idx].exprAngry = result.angry;
-          data[idx].videoInterviewStatus = "Completed";
-          data[idx].videoAnalysis = "Available";
-          localStorage.setItem("results", JSON.stringify(data));
-        }
-      }
-    } catch {}
-    alert("Interview finished. Thanks!");
-    navigate("/");
+      const token = localStorage.getItem("token");
+      await fetch("http://localhost:5000/api/v1/interview/save", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          email,
+          name,
+          emotions,
+        }),
+      });
+      alert("Interview saved successfully!");
+      window.location.href = "http://localhost:8080/";
+    } catch (err) {
+      console.error(err);
+      alert("Failed to save interview");
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 p-6">
-      <div className="max-w-5xl mx-auto">
-        <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">
-          <CardHeader>
-            <CardTitle>Video Interview – {name}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+    <div className="h-screen flex items-center justify-center p-4 bg-gray-50">
+      <Card className="w-full max-w-7xl">
+        <CardHeader>
+          <CardTitle className="text-center text-2xl">
+            Video Interview
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-4 justify-center">
             <video
               ref={videoRef}
-              className="w-full rounded-xl shadow"
+              className="w-1/2 rounded-lg border"
+              autoPlay
               playsInline
               muted
             />
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-gray-600">
-                  Question {qIndex + 1} / {questions.length}
+            <div className="mb-4 mt-10 flex flex-col items-center">
+              {isRecording && (
+                <div
+                  className="font-bold text-xl mb-2"
+                  style={{
+                    color:
+                      timeLeft > 15
+                        ? "black"
+                        : `rgb(${Math.min(
+                            255,
+                            ((15 - timeLeft) / 15) * 255
+                          )}, 0, 0)`,
+                    transition: "color 0.5s linear",
+                  }}
+                >
+                  Time Left: {timeLeft}s
                 </div>
-                <div className="text-lg font-semibold">
+              )}
+              <div>
+                <div className="relative w-full max-w-xs mx-auto aspect-[3/4]">
+                  <img
+                    src={avatar}
+                    alt="Avatar"
+                    className="w-full h-full object-cover rounded-lg shadow-lg"
+                  />
+                  <div
+                    className="absolute left-1/2 bottom-20 w-8 h-2 bg-red-500 rounded-full animate-mouth"
+                    style={{ transform: "translateX(-50%)" }}
+                  ></div>
+                </div>
+                <div className="bg-white p-4 text-lg font-medium text-gray-800 min-h-[100px] min-w-[500px] flex items-center justify-center text-center">
                   {questions.length
                     ? questions[qIndex]
                     : "Loading questions..."}
                 </div>
               </div>
-              <div className="text-right">
-                <div className="text-sm text-gray-600">Time left</div>
-                <div className="text-2xl font-bold">{timeLeft}s</div>
+
+              <div className="flex items-center gap-2 mt-2 min-w-[599px]">
+                <div className="bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-semibold">
+                  Q{qIndex + 1}/{questions.length}
+                </div>
+                <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500"
+                    style={{
+                      width: `${((qIndex + 1) / questions.length) * 100}%`,
+                    }}
+                  ></div>
+                </div>
               </div>
             </div>
-            <div className="flex gap-2">
-              {!isRecording ? (
-                <Button onClick={startRecording}>Start Answer</Button>
-              ) : (
-                <Button variant="destructive" onClick={nextQuestion}>
-                  Next / Stop
-                </Button>
-              )}
-              <Button variant="secondary" onClick={finishInterview}>
-                Finish Now
+          </div>
+
+          <div className="flex gap-2 mt-4 justify-center">
+            {!isRecording ? (
+              <Button
+                onClick={() => speakQuestion(questions[qIndex])}
+                disabled={!apiLoaded || !questions.length}
+              >
+                {apiLoaded ? "Start Answer" : "Loading..."}
               </Button>
-            </div>
-            <div className="grid grid-cols-4 gap-2 text-center">
-              <div>
-                <div className="text-sm text-gray-500">Happy</div>
-                <div className="text-xl font-bold">
-                  {Math.round(samples ? (agg.happy / samples) * 100 : 0)}%
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-500">Neutral</div>
-                <div className="text-xl font-bold">
-                  {Math.round(samples ? (agg.neutral / samples) * 100 : 0)}%
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-500">Sad</div>
-                <div className="text-xl font-bold">
-                  {Math.round(samples ? (agg.sad / samples) * 100 : 0)}%
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-500">Angry</div>
-                <div className="text-xl font-bold">
-                  {Math.round(samples ? (agg.angry / samples) * 100 : 0)}%
-                </div>
-              </div>
-            </div>
-            <div className="text-xs text-gray-500">
-              Tip: For best results, ensure good lighting and keep your face
-              within the frame. If you want automatic expression analysis, run
-              the optional Python service (instructions in the README).
-              Otherwise, you can still record and upload your answers.
-            </div>
-            <div className="text-sm text-gray-600">{status}</div>
-          </CardContent>
-        </Card>
-      </div>
+            ) : (
+              <>
+                <Button variant="outline" onClick={togglePause}>
+                  {isPaused ? "Resume" : "Pause"}
+                </Button>
+                <Button variant="secondary" onClick={nextQuestion}>
+                  Next
+                </Button>
+              </>
+            )}
+
+            <Button variant="destructive" onClick={finishInterview}>
+              Finish
+            </Button>
+          </div>
+
+          <div className="mt-4 text-center text-gray-500">{mcStatus}</div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

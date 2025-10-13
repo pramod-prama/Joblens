@@ -1,10 +1,11 @@
 import exppress from "express";
 
-import { isLoggedIin } from "../middleware/isLoggedIn.js";
 import {
-  createJobDescriptionCtrl,
+  cleanupAllJobDescriptionsCtrl,
+  createOrUpdateJobDescriptionCtrl,
   getJobDescriptionsCtrl,
 } from "../controllers/jobDescriptionCtrl.js";
+import { isLoggedIin } from "../middleware/isLoggedIn.js";
 import { upload } from "../middleware/upload.js";
 
 const jobDescRoutes = exppress.Router();
@@ -14,8 +15,9 @@ jobDescRoutes.post(
   "/jd",
   isLoggedIin, // authentication middleware
   upload.single("file"), // multer file upload
-  createJobDescriptionCtrl
+  createOrUpdateJobDescriptionCtrl
 );
 jobDescRoutes.get("/jd", isLoggedIin, getJobDescriptionsCtrl);
+jobDescRoutes.delete("/deleteAll", isLoggedIin, cleanupAllJobDescriptionsCtrl); // 👈 new DELETE route
 
 export default jobDescRoutes;
